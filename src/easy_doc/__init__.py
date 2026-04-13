@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Public exports for easy-docx."""
+"""Public exports for easy-doc."""
 
 from .word_api import DocContainer, WordAPI
 from .word_styles import (

@@ -377,7 +377,7 @@ wheels = [
 ]
 
 [[package]]
-name = "easy-docx"
+name = "easy-doc"
 version = "0.0.1"
 source = { editable = "." }
 dependencies = [

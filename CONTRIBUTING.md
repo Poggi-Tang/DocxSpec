@@ -1,6 +1,6 @@
 # Contributing
 
-Thanks for contributing to `easy-docx`.
+Thanks for contributing to `easy-doc`.
 
 ## Development setup
 

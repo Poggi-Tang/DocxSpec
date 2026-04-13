@@ -50,13 +50,25 @@ TableConfig = dict[str, Any]
 
 
 class DocContainer:
-    """子文档容器。"""
+    """子文档容器，用于链式调用构建 Word 文档内容。
+
+    该类封装了常用的文档元素添加操作，支持流畅的链式调用风格。
+
+    :param api: WordAPI 实例引用
+    :param subdoc: 子文档对象
+    """
 
     def __init__(self, api: "WordAPI", subdoc: Any) -> None:
         self.api = api
         self.subdoc = subdoc
 
     def add_title(self, text: str, style: Optional[TextStyle] = None) -> "DocContainer":
+        """添加主标题。
+
+        :param text: 标题文本
+        :param style: 可选的文本样式，默认使用 KL主标题 样式
+        :return: 当前容器实例，支持链式调用
+        """
         self.api.add_paragraph(
             self.subdoc,
             text,
@@ -70,6 +82,13 @@ class DocContainer:
         level: int = 1,
         style: Optional[TextStyle] = None,
     ) -> "DocContainer":
+        """添加分级标题。
+
+        :param text: 标题文本
+        :param level: 标题级别（1-3），默认为 1
+        :param style: 可选的自定义样式，未指定时根据 level 自动选择
+        :return: 当前容器实例，支持链式调用
+        """
         if style is None:
             style = {
                 1: make_text_style(style_name="KL一级标题"),
@@ -84,6 +103,12 @@ class DocContainer:
         text: TextValue,
         style: Optional[TextStyle] = None,
     ) -> "DocContainer":
+        """添加普通段落。
+
+        :param text: 段落文本内容
+        :param style: 可选的文本样式，默认使用正文样式
+        :return: 当前容器实例，支持链式调用
+        """
         self.api.add_paragraph(self.subdoc, text, style or BODY_STYLE)
         return self
 
@@ -95,6 +120,15 @@ class DocContainer:
         align: str = "center",
         style: Optional[TextStyle] = None,
     ) -> "DocContainer":
+        """添加图片块。
+
+        :param image_path: 图片文件路径
+        :param width_cm: 图片宽度（厘米），可选
+        :param height_cm: 图片高度（厘米），可选
+        :param align: 对齐方式（left/center/right），默认为 center
+        :param style: 可选的图片样式，默认使用 IMAGE_STYLE
+        :return: 当前容器实例，支持链式调用
+        """
         self.api.add_image_block(
             self.subdoc,
             image_path=image_path,
@@ -112,6 +146,14 @@ class DocContainer:
         body_style: Optional[CellStyle] = None,
         table_style: Optional[TableStyle] = None,
     ) -> "DocContainer":
+        """添加表格。
+
+        :param data: 表格数据，二维列表结构
+        :param header_style: 表头单元格样式，可选
+        :param body_style: 表体单元格样式，可选
+        :param table_style: 表格整体样式，可选
+        :return: 当前容器实例，支持链式调用
+        """
         self.api.insert_table(
             container=self.subdoc,
             data=data,
@@ -122,10 +164,19 @@ class DocContainer:
         return self
 
     def add_table_by_config(self, table_config: TableConfig) -> "DocContainer":
+        """通过配置字典添加表格。
+
+        :param table_config: 表格配置字典，包含 data、style 等键
+        :return: 当前容器实例，支持链式调用
+        """
         self.api.insert_table_by_config(self.subdoc, table_config)
         return self
 
     def add_page_break(self) -> "DocContainer":
+        """添加分页符。
+
+        :return: 当前容器实例，支持链式调用
+        """
         self.subdoc.add_page_break()
         return self
 
@@ -134,9 +185,20 @@ class DocContainer:
         parts: list[PartConfig],
         style: Optional[TextStyle] = None,
     ) -> Any:
+        """添加包含域代码的段落。
+
+        :param parts: 段落组成部分列表，每个部分为包含 type 和 value/code 的字典
+        :param style: 段落样式，可选
+        :return: 创建的段落对象
+        """
         return self.api.add_field_paragraph(self.subdoc, parts, style or BODY_STYLE)
 
     def add_page_footer(self, style: Optional[TextStyle] = None) -> Any:
+        """添加页脚页码信息。
+
+        :param style: 页脚样式，可选
+        :return: 创建的段落对象
+        """
         return self.api.add_page_footer(self.subdoc, style or FOOTER_STYLE)
 
     def add_figure_caption_auto(
@@ -144,6 +206,12 @@ class DocContainer:
         title: str,
         style: Optional[TextStyle] = None,
     ) -> Any:
+        """添加自动编号的图注。
+
+        :param title: 图注标题文本
+        :param style: 题注样式，可选
+        :return: 创建的段落对象
+        """
         return self.api.add_figure_caption_auto(
             self.subdoc,
             title,
@@ -155,6 +223,12 @@ class DocContainer:
         title: str,
         style: Optional[TextStyle] = None,
     ) -> Any:
+        """添加自动编号的表注。
+
+        :param title: 表注标题文本
+        :param style: 题注样式，可选
+        :return: 创建的段落对象
+        """
         return self.api.add_table_caption_auto(
             self.subdoc,
             title,
@@ -163,7 +237,19 @@ class DocContainer:
 
 
 class WordAPI:
-    """Word 报告生成主入口。"""
+    """Word 报告生成主入口类。
+
+    该类提供了完整的 Word 文档生成能力，包括：
+
+    * 基于模板的文档渲染
+    * 段落、表格、图片的插入
+    * 域代码的支持（页码、图表编号等）
+    * 页眉页脚的设置
+    * 子文档容器的管理
+
+    :param template_path: Word 模板文件路径
+    :raises FileNotFoundError: 当模板文件不存在时抛出
+    """
 
     IMAGE_EXTENSIONS = {
         ".png",
@@ -183,10 +269,20 @@ class WordAPI:
         self.doc = DocxTemplate(self.template_path)
 
     def new_container(self) -> DocContainer:
+        """创建新的子文档容器。
+
+        :return: 新的 DocContainer 实例
+        """
         return DocContainer(self, self.doc.new_subdoc())
 
     @staticmethod
     def _check_color(color: Optional[str]) -> Optional[str]:
+        """验证并标准化颜色值。
+
+        :param color: 颜色值字符串（支持 #RRGGBB 或 RRGGBB 格式）
+        :return: 标准化的 6 位大写十六进制颜色字符串
+        :raises ValueError: 当颜色格式不正确时抛出
+        """
         if color is None:
             return None
         value = color.strip().replace("#", "").upper()
@@ -199,6 +295,11 @@ class WordAPI:
 
     @staticmethod
     def _get_paragraph_alignment(align: Optional[str]) -> WD_PARAGRAPH_ALIGNMENT:
+        """获取段落对齐方式枚举值。
+
+        :param align: 对齐方式字符串（left/center/right）
+        :return: python-docx 的段落对齐枚举值
+        """
         value = (align or "left").lower()
         if value == "center":
             return WD_PARAGRAPH_ALIGNMENT.CENTER
@@ -210,6 +311,11 @@ class WordAPI:
     def _get_vertical_alignment(
         vertical_align: Optional[str],
     ) -> WD_CELL_VERTICAL_ALIGNMENT:
+        """获取单元格垂直对齐方式枚举值。
+
+        :param vertical_align: 垂直对齐方式字符串（top/center/bottom）
+        :return: python-docx 的单元格垂直对齐枚举值
+        """
         value = (vertical_align or "center").lower()
         if value == "top":
             return WD_CELL_VERTICAL_ALIGNMENT.TOP
@@ -219,6 +325,11 @@ class WordAPI:
 
     @staticmethod
     def _get_table_alignment(align: Optional[str]) -> WD_TABLE_ALIGNMENT:
+        """获取表格对齐方式枚举值。
+
+        :param align: 对齐方式字符串（left/center/right）
+        :return: python-docx 的表格对齐枚举值
+        """
         value = (align or "center").lower()
         if value == "left":
             return WD_TABLE_ALIGNMENT.LEFT
@@ -235,6 +346,15 @@ class WordAPI:
         italic: Optional[bool] = None,
         font_color: Optional[str] = None,
     ) -> None:
+        """设置文本段的字体属性。
+
+        :param run: python-docx 的 Run 对象
+        :param font_name: 字体名称
+        :param font_size: 字号（磅）
+        :param bold: 是否加粗
+        :param italic: 是否斜体
+        :param font_color: 字体颜色（十六进制格式）
+        """
         font_color = WordAPI._check_color(font_color)
 
         if bold is not None:
@@ -258,6 +378,11 @@ class WordAPI:
 
     @staticmethod
     def _apply_paragraph_style(paragraph: Any, style_name: Optional[str]) -> None:
+        """应用段落样式名称。
+
+        :param paragraph: python-docx 的 Paragraph 对象
+        :param style_name: 样式名称
+        """
         if not style_name:
             return
         try:
@@ -270,6 +395,11 @@ class WordAPI:
         paragraph: Any,
         style: Optional[TextStyle],
     ) -> None:
+        """直接格式化段落属性。
+
+        :param paragraph: python-docx 的 Paragraph 对象
+        :param style: 文本样式配置对象
+        """
         if style is None:
             return
 
@@ -296,6 +426,11 @@ class WordAPI:
 
     @staticmethod
     def _set_cell_background(cell: Any, fill: Optional[str]) -> None:
+        """设置单元格背景色。
+
+        :param cell: python-docx 的 Cell 对象
+        :param fill: 填充颜色（十六进制格式）
+        """
         fill = WordAPI._check_color(fill) if fill else None
         if not fill:
             return
@@ -315,6 +450,14 @@ class WordAPI:
         bottom: int = 80,
         end: int = 80,
     ) -> None:
+        """设置单元格内边距。
+
+        :param cell: python-docx 的 Cell 对象
+        :param top: 上边距（单位：twips）
+        :param start: 左边距（单位：twips）
+        :param bottom: 下边距（单位：twips）
+        :param end: 右边距（单位：twips）
+        """
         tc_pr = cell._tc.get_or_add_tcPr()
         tc_margin = tc_pr.find(qn("w:tcMar"))
         if tc_margin is None:
@@ -335,10 +478,20 @@ class WordAPI:
 
     @staticmethod
     def _cm_to_dxa(cm_value: float) -> int:
+        """将厘米转换为 DXA 单位（Word 内部单位）。
+
+        :param cm_value: 厘米值
+        :return: DXA 单位的整数值
+        """
         return int(cm_value / 2.54 * 1440)
 
     @staticmethod
     def _set_cell_width(cell: Any, width_cm: float) -> None:
+        """设置单元格宽度。
+
+        :param cell: python-docx 的 Cell 对象
+        :param width_cm: 宽度（厘米）
+        """
         width_dxa = WordAPI._cm_to_dxa(width_cm)
         tc_pr = cell._tc.get_or_add_tcPr()
         tc_width = tc_pr.find(qn("w:tcW"))
@@ -350,6 +503,10 @@ class WordAPI:
 
     @staticmethod
     def _set_table_fixed_layout(table: Any) -> None:
+        """设置表格为固定列宽布局。
+
+        :param table: python-docx 的 Table 对象
+        """
         table_pr = table._tbl.tblPr
         table_layout = table_pr.find(qn("w:tblLayout"))
         if table_layout is None:
@@ -359,6 +516,11 @@ class WordAPI:
 
     @staticmethod
     def _set_table_grid_widths(table: Any, col_widths_cm: Sequence[float]) -> None:
+        """设置表格网格列宽。
+
+        :param table: python-docx 的 Table 对象
+        :param col_widths_cm: 各列宽度列表（厘米）
+        """
         table_grid = table._tbl.tblGrid
         if table_grid is None:
             table_grid = OxmlElement("w:tblGrid")

@@ -1,15 +1,14 @@
-# easy-docx
-
+# easy-doc
 English | [简体中文](https://github.com/Poggi-Tang/easydocx/blob/main/README.zh-CN.md)
 
-[![PyPI](https://img.shields.io/pypi/v/easy_uiauto?cacheSeconds=300)](https://pypi.org/project/easy-docx/)
-[![Python](https://img.shields.io/pypi/pyversions/easy-docx?cacheSeconds=300)](https://pypi.org/project/easy-docx/)
+[![PyPI](https://img.shields.io/pypi/v/easy_doc?cacheSeconds=300)](https://pypi.org/project/easy-doc/)
+[![Python](https://img.shields.io/pypi/pyversions/easy-doc?cacheSeconds=300)](https://pypi.org/project/easy-doc/)
 [![License](https://img.shields.io/github/license/Poggi-Tang/easydocx)](https://github.com/Poggi-Tang/easydocx/blob/main/LICENSE)
 [![CI](https://github.com/Poggi-Tang/easydocx/actions/workflows/ci.yml/badge.svg)](https://github.com/Poggi-Tang/easydocx/actions/workflows/ci.yml)
 [![Publish](https://github.com/Poggi-Tang/easydocx/actions/workflows/publish.yml/badge.svg)](https://github.com/Poggi-Tang/easydocx/actions/workflows/publish.yml)
 
 
-`easy-docx` is a lightweight Word report generation library built on top of `python-docx`.
+`easy-doc` is a lightweight Word report generation library built on top of `python-docx`.
 
 It provides a small, structured API for generating `.docx` reports from templates and
 containerized content blocks. It is suitable for automated test reports, simulation reports,
@@ -29,7 +28,7 @@ and other document-generation workflows.
 Install from PyPI:
 
 ```bash
-pip install easy-docx
+pip install easy-doc
 ```
 
 Or install from source:
@@ -43,8 +42,8 @@ pip install -e .
 ## Quick Start
 
 ```python
-from easy_docx import WordAPI
-from easy_docx import BODY_STYLE, make_rich_text
+from easy_doc import WordAPI
+from easy_doc import BODY_STYLE, make_rich_text
 
 api = WordAPI("templates/test.docx")
 
@@ -91,7 +90,7 @@ easydocx
 │       └── release.yml
 ├── examples/
 ├── src/
-│   └── easy_docx/
+│   └── easy_doc/
 │       ├── __init__.py
 │       ├── word_api.py
 │       ├── word_styles.py

@@ -22,8 +22,8 @@ from .word_styles import (
 def run(output_path=None) -> None:
     """执行示例报告生成流程。"""
     project_root = Path(__file__).resolve().parents[1]
-    template_path = project_root / "easy_docx" / "templates" / "default_template.docx"
-    image_path = project_root / "easy_docx" / "templates" / "easy-docx.png"
+    template_path = project_root / "easy_doc" / "templates" / "default_template.docx"
+    image_path = project_root / "easy_doc" / "templates" / "easy-doc.png"
     if output_path is None:
         output_dir = "."
 

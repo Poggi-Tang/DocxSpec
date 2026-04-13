@@ -1,15 +1,15 @@
-# easy-docx
+# easy-doc
 
 [English](README.md) | 简体中文
 
-[![PyPI](https://img.shields.io/pypi/v/easy_uiauto?cacheSeconds=300)](https://pypi.org/project/easy-docx/)
-[![Python](https://img.shields.io/pypi/pyversions/easy-docx?cacheSeconds=300)](https://pypi.org/project/easy-docx/)
+[![PyPI](https://img.shields.io/pypi/v/easy_doc?cacheSeconds=300)](https://pypi.org/project/easy-doc/)
+[![Python](https://img.shields.io/pypi/pyversions/easy-doc?cacheSeconds=300)](https://pypi.org/project/easy-doc/)
 [![License](https://img.shields.io/github/license/Poggi-Tang/easydocx)](https://github.com/Poggi-Tang/easydocx/blob/main/LICENSE)
 [![CI](https://github.com/Poggi-Tang/easydocx/actions/workflows/ci.yml/badge.svg)](https://github.com/Poggi-Tang/easydocx/actions/workflows/ci.yml)
 [![Publish](https://github.com/Poggi-Tang/easydocx/actions/workflows/publish.yml/badge.svg)](https://github.com/Poggi-Tang/easydocx/actions/workflows/publish.yml)
 
 
-`easy-docx` 是一个基于 `python-docx` 的轻量级 Word 报告生成库。
+`easy-doc` 是一个基于 `python-docx` 的轻量级 Word 报告生成库。
 
 它提供了一套小而清晰的 API，用于基于模板和结构化内容块生成 `.docx` 文档，适用于自动化测试报告、仿真报告以及其他文档生成场景。
 
@@ -27,7 +27,7 @@
 从 PyPI 安装：
 
 ```bash
-pip install easy-docx
+pip install easy-doc
 ```
 
 或从源码安装：
@@ -41,8 +41,8 @@ pip install -e .
 ## 快速示例
 
 ```python
-from easy_docx import WordAPI
-from easy_docx import BODY_STYLE, make_rich_text
+from easy_doc import WordAPI
+from easy_doc import BODY_STYLE, make_rich_text
 
 api = WordAPI("templates/test.docx")
 
@@ -89,7 +89,7 @@ easydocx
 │       └── release.yml
 ├── examples/
 ├── src/
-│   └── easy_docx/
+│   └── easy_doc/
 │       ├── __init__.py
 │       ├── word_api.py
 │       ├── word_styles.py

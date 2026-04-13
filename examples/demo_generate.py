@@ -10,8 +10,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from src.easy_docx.word_api import WordAPI
-from src.easy_docx.word_styles import (
+from src.easy_doc.word_api import WordAPI
+from src.easy_doc.word_styles import (
     BODY_STYLE,
     CAPTION_STYLE,
     MAIN_STYLE,
@@ -25,8 +25,8 @@ from src.easy_docx.word_styles import (
 def main() -> None:
     """执行示例报告生成流程。"""
     project_root = Path(__file__).resolve().parents[1]
-    template_path = project_root / "src" / "easy_docx" / "templates" / "default_template.docx"
-    image_path = project_root / "src" / "easy_docx" / "templates" / "klword.png"
+    template_path = project_root / "src" / "easy_doc" / "templates" / "default_template.docx"
+    image_path = project_root / "src" / "easy_doc" / "templates" / "klword.png"
     output_dir = project_root / "output"
     output_dir.mkdir(exist_ok=True)
 
