@@ -4,9 +4,9 @@
 
 [![PyPI](https://img.shields.io/pypi/v/easy_doc?cacheSeconds=300)](https://pypi.org/project/easy-doc/)
 [![Python](https://img.shields.io/pypi/pyversions/easy-doc?cacheSeconds=300)](https://pypi.org/project/easy-doc/)
-[![License](https://img.shields.io/github/license/Poggi-Tang/easydocx)](https://github.com/Poggi-Tang/easydocx/blob/main/LICENSE)
-[![CI](https://github.com/Poggi-Tang/easydocx/actions/workflows/ci.yml/badge.svg)](https://github.com/Poggi-Tang/easydocx/actions/workflows/ci.yml)
-[![Publish](https://github.com/Poggi-Tang/easydocx/actions/workflows/publish.yml/badge.svg)](https://github.com/Poggi-Tang/easydocx/actions/workflows/publish.yml)
+[![License](https://img.shields.io/github/license/Poggi-Tang/easydoc)](https://github.com/Poggi-Tang/easydoc/blob/main/LICENSE)
+[![CI](https://github.com/Poggi-Tang/easydoc/actions/workflows/ci.yml/badge.svg)](https://github.com/Poggi-Tang/easydoc/actions/workflows/ci.yml)
+[![Publish](https://github.com/Poggi-Tang/easydoc/actions/workflows/publish.yml/badge.svg)](https://github.com/Poggi-Tang/easydoc/actions/workflows/publish.yml)
 
 
 `easy-doc` 是一个基于 `python-docx` 的轻量级 Word 报告生成库。
@@ -33,8 +33,8 @@ pip install easy-doc
 或从源码安装：
 
 ```bash
-git clone https://github.com/Poggi-Tang/easydocx.git
-cd easydocx
+git clone https://github.com/Poggi-Tang/easydoc.git
+cd easydoc
 pip install -e .
 ```
 
@@ -81,7 +81,7 @@ api.render(
 ## 项目结构
 
 ```text
-easydocx
+easydoc
 ├── .github/
 │   └── workflows/
 │       ├── ci.yml
@@ -122,10 +122,10 @@ ruff check .
 
 ## 许可证
 
-MIT License，详见 [LICENSE](https://github.com/Poggi-Tang/easydocx/blob/main/LICENSE)。
+MIT License，详见 [LICENSE](https://github.com/Poggi-Tang/easydoc/blob/main/LICENSE)。
 
 ## 联系方式
 
 扫描二维码添加微信：
 
-![微信二维码](https://github.com/Poggi-Tang/easydocx/blob/main/src/image/or_code.bmp)
+![微信二维码](https://github.com/Poggi-Tang/easydoc/blob/main/src/image/or_code.bmp)

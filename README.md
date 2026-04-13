@@ -1,11 +1,11 @@
 # easy-doc
-English | [简体中文](https://github.com/Poggi-Tang/easydocx/blob/main/README.zh-CN.md)
+English | [简体中文](https://github.com/Poggi-Tang/easydoc/blob/main/README.zh-CN.md)
 
 [![PyPI](https://img.shields.io/pypi/v/easy_doc?cacheSeconds=300)](https://pypi.org/project/easy-doc/)
 [![Python](https://img.shields.io/pypi/pyversions/easy-doc?cacheSeconds=300)](https://pypi.org/project/easy-doc/)
-[![License](https://img.shields.io/github/license/Poggi-Tang/easydocx)](https://github.com/Poggi-Tang/easydocx/blob/main/LICENSE)
-[![CI](https://github.com/Poggi-Tang/easydocx/actions/workflows/ci.yml/badge.svg)](https://github.com/Poggi-Tang/easydocx/actions/workflows/ci.yml)
-[![Publish](https://github.com/Poggi-Tang/easydocx/actions/workflows/publish.yml/badge.svg)](https://github.com/Poggi-Tang/easydocx/actions/workflows/publish.yml)
+[![License](https://img.shields.io/github/license/Poggi-Tang/easydoc)](https://github.com/Poggi-Tang/easydoc/blob/main/LICENSE)
+[![CI](https://github.com/Poggi-Tang/easydoc/actions/workflows/ci.yml/badge.svg)](https://github.com/Poggi-Tang/easydoc/actions/workflows/ci.yml)
+[![Publish](https://github.com/Poggi-Tang/easydoc/actions/workflows/publish.yml/badge.svg)](https://github.com/Poggi-Tang/easydoc/actions/workflows/publish.yml)
 
 
 `easy-doc` is a lightweight Word report generation library built on top of `python-docx`.
@@ -34,8 +34,8 @@ pip install easy-doc
 Or install from source:
 
 ```bash
-git clone https://github.com/Poggi-Tang/easydocx.git
-cd easydocx
+git clone https://github.com/Poggi-Tang/easydoc.git
+cd easydoc
 pip install -e .
 ```
 
@@ -82,7 +82,7 @@ api.render(
 ## Project Structure
 
 ```text
-easydocx
+easydoc
 ├── .github/
 │   └── workflows/
 │       ├── ci.yml
@@ -123,10 +123,10 @@ ruff check .
 
 ## License
 
-MIT License. See [LICENSE](https://github.com/Poggi-Tang/easydocx/blob/main/LICENSE).
+MIT License. See [LICENSE](https://github.com/Poggi-Tang/easydoc/blob/main/LICENSE).
 
 ## Contact
 
 Scan the QR code to add me on WeChat:
 
-![WeChat QR Code](https://github.com/Poggi-Tang/easydocx/blob/main/src/image/or_code.bmp)
+![WeChat QR Code](https://github.com/Poggi-Tang/easydoc/blob/main/src/image/or_code.bmp)

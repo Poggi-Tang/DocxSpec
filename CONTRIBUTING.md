@@ -5,8 +5,8 @@ Thanks for contributing to `easy-doc`.
 ## Development setup
 
 ```bash
-git clone https://github.com/Poggi-Tang/easydocx.git
-cd easydocx
+git clone https://github.com/Poggi-Tang/easydoc.git
+cd easydoc
 pip install -e .[dev]
 ```
 

@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""EasyDocx WordAPI 完整功能测试套件。
+"""easydoc WordAPI 完整功能测试套件。
 
 本测试文件覆盖 WordAPI 的所有公开接口，包括：
 - 文档初始化和模板加载
@@ -595,7 +595,7 @@ class TestIntegration:
         output_path = api.render(context, output_file)
         final_path = api.write_header_footer(
             output_path,
-            header_text="EasyDocx 测试文档",
+            header_text="easydoc 测试文档",
             header_style=HEADER_STYLE,
             footer_style=FOOTER_STYLE
         )
@@ -611,7 +611,7 @@ class TestIntegration:
         
         api = WordAPI(template_path)
         
-        text_content = make_rich_text("EasyDocx 完整功能测试报告", BODY_STYLE)
+        text_content = make_rich_text("easydoc 完整功能测试报告", BODY_STYLE)
         
         image_container = api.new_container()
         image_container.add_title("图片功能测试")
@@ -859,7 +859,7 @@ class TestIntegration:
         output_path = api.render(context, output_file)
         final_path = api.write_header_footer(
             output_path,
-            header_text="EasyDocx 测试报告",
+            header_text="easydoc 测试报告",
             header_style=HEADER_STYLE,
             footer_style=FOOTER_STYLE
         )

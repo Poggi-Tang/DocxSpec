@@ -40,11 +40,11 @@ dev = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/Poggi-Tang/easydocx"
-Repository = "https://github.com/Poggi-Tang/easydocx"
-Issues = "https://github.com/Poggi-Tang/easydocx/issues"
-Changelog = "https://github.com/Poggi-Tang/easydocx/blob/master/CHANGELOG.md"
-Documentation = "https://github.com/Poggi-Tang/easydocx/blob/master/README.md"
+Homepage = "https://github.com/Poggi-Tang/easydoc"
+Repository = "https://github.com/Poggi-Tang/easydoc"
+Issues = "https://github.com/Poggi-Tang/easydoc/issues"
+Changelog = "https://github.com/Poggi-Tang/easydoc/blob/master/CHANGELOG.md"
+Documentation = "https://github.com/Poggi-Tang/easydoc/blob/master/README.md"
 
 [tool.setuptools]
 package-dir = {"" = "src"}
