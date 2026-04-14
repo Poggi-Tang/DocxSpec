@@ -1,14 +1,14 @@
-# easy-doc
-English | [简体中文](https://github.com/Poggi-Tang/easydoc/blob/main/README.zh-CN.md)
+# docxspec
+English | [简体中文](https://github.com/Poggi-Tang/docxspec/blob/main/README.zh-CN.md)
 
-[![PyPI](https://img.shields.io/pypi/v/easy_doc?cacheSeconds=300)](https://pypi.org/project/easy-doc/)
-[![Python](https://img.shields.io/pypi/pyversions/easy-doc?cacheSeconds=300)](https://pypi.org/project/easy-doc/)
-[![License](https://img.shields.io/github/license/Poggi-Tang/easydoc)](https://github.com/Poggi-Tang/easydoc/blob/main/LICENSE)
-[![CI](https://github.com/Poggi-Tang/easydoc/actions/workflows/ci.yml/badge.svg)](https://github.com/Poggi-Tang/easydoc/actions/workflows/ci.yml)
-[![Publish](https://github.com/Poggi-Tang/easydoc/actions/workflows/publish.yml/badge.svg)](https://github.com/Poggi-Tang/easydoc/actions/workflows/publish.yml)
+[![PyPI](https://img.shields.io/pypi/v/docxspec?cacheSeconds=300)](https://pypi.org/project/docxspec/)
+[![Python](https://img.shields.io/pypi/pyversions/docxspec?cacheSeconds=300)](https://pypi.org/project/docxspec/)
+[![License](https://img.shields.io/github/license/Poggi-Tang/docxspec)](https://github.com/Poggi-Tang/docxspec/blob/main/LICENSE)
+[![CI](https://github.com/Poggi-Tang/docxspec/actions/workflows/ci.yml/badge.svg)](https://github.com/Poggi-Tang/docxspec/actions/workflows/ci.yml)
+[![Publish](https://github.com/Poggi-Tang/docxspec/actions/workflows/publish.yml/badge.svg)](https://github.com/Poggi-Tang/docxspec/actions/workflows/publish.yml)
 
 
-`easy-doc` is a lightweight Word report generation library built on top of `python-docx`.
+`docxspec` is a lightweight Word report generation library built on top of `python-docx`.
 
 It provides a small, structured API for generating `.docx` reports from templates and
 containerized content blocks. It is suitable for automated test reports, simulation reports,
@@ -28,22 +28,22 @@ and other document-generation workflows.
 Install from PyPI:
 
 ```bash
-pip install easy-doc
+pip install docxspec
 ```
 
 Or install from source:
 
 ```bash
-git clone https://github.com/Poggi-Tang/easydoc.git
-cd easydoc
+git clone https://github.com/Poggi-Tang/docxspec.git
+cd docxspec
 pip install -e .
 ```
 
 ## Quick Start
 
 ```python
-from easy_doc import WordAPI
-from easy_doc import BODY_STYLE, make_rich_text
+from docxspec import WordAPI
+from docxspec import BODY_STYLE, make_rich_text
 
 api = WordAPI("templates/test.docx")
 
@@ -82,7 +82,7 @@ api.render(
 ## Project Structure
 
 ```text
-easydoc
+docxspec
 ├── .github/
 │   └── workflows/
 │       ├── ci.yml
@@ -90,7 +90,7 @@ easydoc
 │       └── release.yml
 ├── examples/
 ├── src/
-│   └── easy_doc/
+│   └── docxspec/
 │       ├── __init__.py
 │       ├── word_api.py
 │       ├── word_styles.py
@@ -123,10 +123,10 @@ ruff check .
 
 ## License
 
-MIT License. See [LICENSE](https://github.com/Poggi-Tang/easydoc/blob/main/LICENSE).
+MIT License. See [LICENSE](https://github.com/Poggi-Tang/docxspec/blob/main/LICENSE).
 
 ## Contact
 
 Scan the QR code to add me on WeChat:
 
-![WeChat QR Code](https://github.com/Poggi-Tang/easydoc/blob/main/src/image/or_code.bmp)
+![WeChat QR Code](https://github.com/Poggi-Tang/docxspec/blob/main/src/image/or_code.bmp)

@@ -1,12 +1,12 @@
 # Contributing
 
-Thanks for contributing to `easy-doc`.
+Thanks for contributing to `docxspec`.
 
 ## Development setup
 
 ```bash
-git clone https://github.com/Poggi-Tang/easydoc.git
-cd easydoc
+git clone https://github.com/Poggi-Tang/docxspec.git
+cd docxspec
 pip install -e .[dev]
 ```
 

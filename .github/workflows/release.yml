@@ -15,7 +15,7 @@ jobs:
 
     environment:
       name: pypi
-      url: https://pypi.org/p/easy-doc
+      url: https://pypi.org/p/docxspec
 
     steps:
       - name: Checkout

@@ -3,7 +3,7 @@ requires = ["setuptools>=80", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "easy-doc"
+name = "docxspec"
 version = "0.0.1"
 description = "Lightweight Word report generation library based on python-docx"
 readme = "README.md"
@@ -40,11 +40,11 @@ dev = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/Poggi-Tang/easydoc"
-Repository = "https://github.com/Poggi-Tang/easydoc"
-Issues = "https://github.com/Poggi-Tang/easydoc/issues"
-Changelog = "https://github.com/Poggi-Tang/easydoc/blob/master/CHANGELOG.md"
-Documentation = "https://github.com/Poggi-Tang/easydoc/blob/master/README.md"
+Homepage = "https://github.com/Poggi-Tang/docxspec"
+Repository = "https://github.com/Poggi-Tang/docxspec"
+Issues = "https://github.com/Poggi-Tang/docxspec/issues"
+Changelog = "https://github.com/Poggi-Tang/docxspec/blob/master/CHANGELOG.md"
+Documentation = "https://github.com/Poggi-Tang/docxspec/blob/master/README.md"
 
 [tool.setuptools]
 package-dir = {"" = "src"}
@@ -55,7 +55,7 @@ where = ["src"]
 namespaces = false
 
 [tool.setuptools.package-data]
-easy_doc = [
+docxspec = [
   "py.typed",
   "templates/*.docx",
   "templates/*.png",
@@ -83,7 +83,7 @@ select = ["E", "F", "I", "B", "UP"]
 ignore = []
 
 [tool.coverage.run]
-source = ["src/easy_doc"]
+source = ["src/docxspec"]
 branch = true
 
 [tool.coverage.report]
@@ -93,7 +93,7 @@ skip_covered = false
 [tool.semantic_release]
 branch = "master"
 version_toml = ["pyproject.toml:project.version"]
-version_variables = ["src/easy_doc/__init__.py:__version__"]
+version_variables = ["src/docxspec/__init__.py:__version__"]
 changelog_file = "CHANGELOG.md"
 build_command = "python -m build"
 dist_path = "dist/"

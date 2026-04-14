@@ -1,15 +1,15 @@
-# easy-doc
+# docxspec
 
 [English](README.md) | 简体中文
 
-[![PyPI](https://img.shields.io/pypi/v/easy_doc?cacheSeconds=300)](https://pypi.org/project/easy-doc/)
-[![Python](https://img.shields.io/pypi/pyversions/easy-doc?cacheSeconds=300)](https://pypi.org/project/easy-doc/)
-[![License](https://img.shields.io/github/license/Poggi-Tang/easydoc)](https://github.com/Poggi-Tang/easydoc/blob/main/LICENSE)
-[![CI](https://github.com/Poggi-Tang/easydoc/actions/workflows/ci.yml/badge.svg)](https://github.com/Poggi-Tang/easydoc/actions/workflows/ci.yml)
-[![Publish](https://github.com/Poggi-Tang/easydoc/actions/workflows/publish.yml/badge.svg)](https://github.com/Poggi-Tang/easydoc/actions/workflows/publish.yml)
+[![PyPI](https://img.shields.io/pypi/v/docxspec?cacheSeconds=300)](https://pypi.org/project/docxspec/)
+[![Python](https://img.shields.io/pypi/pyversions/docxspec?cacheSeconds=300)](https://pypi.org/project/docxspec/)
+[![License](https://img.shields.io/github/license/Poggi-Tang/docxspec)](https://github.com/Poggi-Tang/docxspec/blob/main/LICENSE)
+[![CI](https://github.com/Poggi-Tang/docxspec/actions/workflows/ci.yml/badge.svg)](https://github.com/Poggi-Tang/docxspec/actions/workflows/ci.yml)
+[![Publish](https://github.com/Poggi-Tang/docxspec/actions/workflows/publish.yml/badge.svg)](https://github.com/Poggi-Tang/docxspec/actions/workflows/publish.yml)
 
 
-`easy-doc` 是一个基于 `python-docx` 的轻量级 Word 报告生成库。
+`docxspec` 是一个基于 `python-docx` 的轻量级 Word 报告生成库。
 
 它提供了一套小而清晰的 API，用于基于模板和结构化内容块生成 `.docx` 文档，适用于自动化测试报告、仿真报告以及其他文档生成场景。
 
@@ -27,22 +27,22 @@
 从 PyPI 安装：
 
 ```bash
-pip install easy-doc
+pip install docxspec
 ```
 
 或从源码安装：
 
 ```bash
-git clone https://github.com/Poggi-Tang/easydoc.git
-cd easydoc
+git clone https://github.com/Poggi-Tang/docxspec.git
+cd docxspec
 pip install -e .
 ```
 
 ## 快速示例
 
 ```python
-from easy_doc import WordAPI
-from easy_doc import BODY_STYLE, make_rich_text
+from docxspec import WordAPI
+from docxspec import BODY_STYLE, make_rich_text
 
 api = WordAPI("templates/test.docx")
 
@@ -81,7 +81,7 @@ api.render(
 ## 项目结构
 
 ```text
-easydoc
+docxspec
 ├── .github/
 │   └── workflows/
 │       ├── ci.yml
@@ -89,7 +89,7 @@ easydoc
 │       └── release.yml
 ├── examples/
 ├── src/
-│   └── easy_doc/
+│   └── docxspec/
 │       ├── __init__.py
 │       ├── word_api.py
 │       ├── word_styles.py
@@ -122,10 +122,10 @@ ruff check .
 
 ## 许可证
 
-MIT License，详见 [LICENSE](https://github.com/Poggi-Tang/easydoc/blob/main/LICENSE)。
+MIT License，详见 [LICENSE](https://github.com/Poggi-Tang/docxspec/blob/main/LICENSE)。
 
 ## 联系方式
 
 扫描二维码添加微信：
 
-![微信二维码](https://github.com/Poggi-Tang/easydoc/blob/main/src/image/or_code.bmp)
+![微信二维码](https://github.com/Poggi-Tang/docxspec/blob/main/src/image/or_code.bmp)
