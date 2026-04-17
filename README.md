@@ -79,6 +79,19 @@ api.render(
 )
 ```
 
+## Example Script
+
+A runnable teaching example is available at `examples/generate_tutorial_report.py`.
+
+From the repository root:
+
+```bash
+python examples/generate_tutorial_report.py
+```
+
+The script reuses the test template and image in `tests/templates/` and writes
+the generated file to `output/tutorial_report.docx`.
+
 ## Project Structure
 
 ```text

@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*-
+﻿# -*- coding: utf-8 -*-
 """Word 文档生成 API。
 
 本模块基于 ``docxtpl`` 与 ``python-docx`` 提供统一的报告生成接口：
@@ -1028,6 +1028,7 @@ class WordAPI:
 
         self.doc.render(context)
         self.doc.save(output_path)
+
         return output_path
 
     def _write_single_header(
@@ -1046,6 +1047,26 @@ class WordAPI:
         )
         self.add_text_run(paragraph, text, style)
 
+    def _set_section_page_start(
+        self,
+        section: Any,
+        start: int = 1,
+    ) -> None:
+        sect_pr = section._sectPr
+        old_pg_num_type = sect_pr.find(qn("w:pgNumType"))
+        if old_pg_num_type is not None:
+            sect_pr.remove(old_pg_num_type)
+
+        pg_num_type = OxmlElement("w:pgNumType")
+        pg_num_type.set(qn("w:start"), str(start))
+        sect_pr.append(pg_num_type)
+
+    def _remove_section_page_start(self, section: Any) -> None:
+        sect_pr = section._sectPr
+        old_pg_num_type = sect_pr.find(qn("w:pgNumType"))
+        if old_pg_num_type is not None:
+            sect_pr.remove(old_pg_num_type)
+
     def _write_single_footer(
         self,
         section: Any,
@@ -1053,38 +1074,107 @@ class WordAPI:
     ) -> None:
         footer = section.footer
         paragraph = footer.paragraphs[0] if footer.paragraphs else footer.add_paragraph()
-        self._clear_paragraph(paragraph)
+
+        self._clear_footer_paragraph_keep_ppr(paragraph)
+
         self._apply_paragraph_style(paragraph, getattr(style, "style_name", None))
         self._apply_paragraph_direct_format(paragraph, style)
-        paragraph.alignment = self._get_paragraph_alignment(
-            getattr(style, "align", "center")
-        )
+        paragraph.alignment = WD_PARAGRAPH_ALIGNMENT.CENTER
 
-        self.add_text_run(paragraph, "第 ", style)
-        self.add_field_run(paragraph, "PAGE")
-        self.add_text_run(paragraph, " 页 / 共 ", style)
-        self.add_field_run(paragraph, "NUMPAGES")
-        self.add_text_run(paragraph, " 页", style)
+        run1 = paragraph.add_run("第")
+        if style is not None:
+            self._set_run_font(
+                run1,
+                font_name=style.font_name,
+                font_size=style.font_size,
+                bold=style.bold,
+                italic=style.italic,
+                font_color=style.font_color,
+            )
+
+        self._add_footer_field_run_demo(paragraph, "PAGE")
+
+        run2 = paragraph.add_run("页 共")
+        if style is not None:
+            self._set_run_font(
+                run2,
+                font_name=style.font_name,
+                font_size=style.font_size,
+                bold=style.bold,
+                italic=style.italic,
+                font_color=style.font_color,
+            )
+
+        self._add_footer_field_run_demo(paragraph, "SECTIONPAGES")
+
+        run3 = paragraph.add_run("页")
+        if style is not None:
+            self._set_run_font(
+                run3,
+                font_name=style.font_name,
+                font_size=style.font_size,
+                bold=style.bold,
+                italic=style.italic,
+                font_color=style.font_color,
+            )
 
     def write_header_footer(
-        self,
-        docx_path: str,
-        header_text: Optional[str] = None,
-        header_style: Optional[TextStyle] = None,
-        footer_style: Optional[TextStyle] = None,
+            self,
+            docx_path: str,
+            header_text: Optional[str] = None,
+            header_style: Optional[TextStyle] = None,
+            footer_style: Optional[TextStyle] = None,
     ) -> str:
         document = Document(docx_path)
-        for section in document.sections:
-            if header_text is not None:
+
+        if not document.sections:
+            document.save(docx_path)
+            return docx_path
+
+        # 1. 页眉：全局所有节统一写
+        if header_text is not None:
+            for section in document.sections:
+                section.header.is_linked_to_previous = False
                 self._write_single_header(
                     section,
                     header_text,
                     header_style or HEADER_STYLE,
                 )
-            self._write_single_footer(section, footer_style or FOOTER_STYLE)
+
+        # 2. 页脚：只处理最后一节
+        last_section = document.sections[-1]
+        last_section.footer.is_linked_to_previous = False
+        self._set_section_page_start(last_section, start=1)
+        self._write_single_footer(
+            last_section,
+            footer_style or FOOTER_STYLE,
+        )
 
         document.save(docx_path)
         return docx_path
+
+    def _add_footer_field_run_demo(self, paragraph: Any, field_name: str) -> None:
+        run = paragraph.add_run()
+
+        fld_char_begin = OxmlElement("w:fldChar")
+        fld_char_begin.set(qn("w:fldCharType"), "begin")
+
+        instr_text = OxmlElement("w:instrText")
+        instr_text.set(qn("xml:space"), "preserve")
+        instr_text.text = field_name
+
+        fld_char_end = OxmlElement("w:fldChar")
+        fld_char_end.set(qn("w:fldCharType"), "end")
+
+        run._r.append(fld_char_begin)
+        run._r.append(instr_text)
+        run._r.append(fld_char_end)
+
+    def _clear_footer_paragraph_keep_ppr(self, paragraph: Any) -> None:
+        p = paragraph._p
+        for child in list(p):
+            if child.tag != qn("w:pPr"):
+                p.remove(child)
 
 # if __name__ == '__main__':
 #     pass
