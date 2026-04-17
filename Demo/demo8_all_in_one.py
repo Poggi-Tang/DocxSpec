@@ -40,6 +40,7 @@ def main() -> Path:
     result.add_image(str(IMAGE_PATH), width_cm=8.0, align="center")
     result.add_figure_caption_auto("综合示例图片")
     result.add_heading("表格和表题注", level=1)
+    result.add_table_caption_auto("综合示例表")
     result.add_table(
         [
             ["字段", "值"],
@@ -48,7 +49,6 @@ def main() -> Path:
             ["输出", "Demo/output/"],
         ]
     )
-    result.add_table_caption_auto("综合示例表")
     result.add_page_break()
     result.add_heading("分页后的内容", level=1)
     result.add_paragraph("这里说明 add_page_break() 后仍然可以继续追加内容。")

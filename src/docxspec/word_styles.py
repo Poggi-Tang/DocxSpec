@@ -249,10 +249,10 @@ H2_STYLE = make_text_style(
 )
 
 H3_STYLE = make_text_style(
-    style_name="KL其他标题",
+    style_name="KL三级标题",
     font_name=DEFAULT_FONT_NAME,
     font_size="小四",
-    bold=True,
+    bold=False,
 )
 
 BODY_STYLE = make_text_style(
