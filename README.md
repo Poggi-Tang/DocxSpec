@@ -1,5 +1,5 @@
 # docxspec
-English | [简体中文](https://github.com/Poggi-Tang/docxspec/blob/main/README.zh-CN.md)
+English | [简体中文](README.zh-CN.md)
 
 [![PyPI](https://img.shields.io/pypi/v/docxspec?cacheSeconds=300)](https://pypi.org/project/docxspec/)
 [![Python](https://img.shields.io/pypi/pyversions/docxspec?cacheSeconds=300)](https://pypi.org/project/docxspec/)
@@ -7,11 +7,10 @@ English | [简体中文](https://github.com/Poggi-Tang/docxspec/blob/main/README
 [![CI](https://github.com/Poggi-Tang/docxspec/actions/workflows/ci.yml/badge.svg)](https://github.com/Poggi-Tang/docxspec/actions/workflows/ci.yml)
 [![Publish](https://github.com/Poggi-Tang/docxspec/actions/workflows/publish.yml/badge.svg)](https://github.com/Poggi-Tang/docxspec/actions/workflows/publish.yml)
 
-
 `docxspec` is a lightweight Word report generation library built on top of `python-docx`.
 
-It provides a small, structured API for generating `.docx` reports from templates and
-containerized content blocks. It is suitable for automated test reports, simulation reports,
+It provides a small, structured API for generating `.docx` reports from user-supplied templates
+and containerized content blocks. It is suitable for automated test reports, simulation reports,
 and other document-generation workflows.
 
 ## Features
@@ -42,10 +41,9 @@ pip install -e .
 ## Quick Start
 
 ```python
-from docxspec import WordAPI
-from docxspec import BODY_STYLE, make_rich_text
+from docxspec import BODY_STYLE, WordAPI, make_rich_text
 
-api = WordAPI("templates/test.docx")
+api = WordAPI("your_template.docx")
 
 text = make_rich_text(
     "This text is inserted into the template.",
@@ -54,7 +52,7 @@ text = make_rich_text(
 
 image_container = api.new_container()
 image_container.add_image(
-    "templates/test_image.png",
+    "your_image.png",
     width_cm=8.0,
     align="center",
 )
@@ -79,18 +77,35 @@ api.render(
 )
 ```
 
-## Example Script
+## Demo Directory
 
-A runnable teaching example is available at `examples/generate_tutorial_report.py`.
+The repository includes a runnable demo set in `Demo/`.
 
-From the repository root:
+It uses one shared template file:
+
+- `Demo/template.docx`
+
+And provides these example scripts:
+
+- `Demo/demo1_paragraph.py`
+- `Demo/demo2_container_paragraph.py`
+- `Demo/demo3_container_image_caption.py`
+- `Demo/demo4_container_table_caption.py`
+- `Demo/demo5_container_table_image_caption.py`
+- `Demo/demo6_header_footer.py`
+- `Demo/demo7_styles_in_container.py`
+- `Demo/demo8_all_in_one.py`
+
+Run them from the repository root, for example:
 
 ```bash
-python examples/generate_tutorial_report.py
+python Demo/demo1_paragraph.py
+python Demo/demo8_all_in_one.py
 ```
 
-The script reuses the test template and image in `tests/templates/` and writes
-the generated file to `output/tutorial_report.docx`.
+Generated files are written to `Demo/output/`.
+
+Note: template and demo assets are repository examples. They are not packaged into the published wheel.
 
 ## Project Structure
 
@@ -98,22 +113,18 @@ the generated file to `output/tutorial_report.docx`.
 docxspec
 ├── .github/
 │   └── workflows/
-│       ├── ci.yml
-│       ├── publish.yml
-│       └── release.yml
-├── examples/
+├── Demo/
 ├── src/
 │   └── docxspec/
 │       ├── __init__.py
 │       ├── word_api.py
-│       ├── word_styles.py
-│       └── templates/
+│       └── word_styles.py
 ├── tests/
 ├── CHANGELOG.md
 ├── CONTRIBUTING.md
 ├── LICENSE
 ├── README.md
-├── README_CN.md
+├── README.zh-CN.md
 └── pyproject.toml
 ```
 
@@ -134,12 +145,8 @@ pytest
 ruff check .
 ```
 
+When developing locally, prepare your own `.docx` template files in the repository or project workspace and pass their paths explicitly to `WordAPI`.
+
 ## License
 
 MIT License. See [LICENSE](https://github.com/Poggi-Tang/docxspec/blob/main/LICENSE).
-
-## Contact
-
-Scan the QR code to add me on WeChat:
-
-![WeChat QR Code](https://github.com/Poggi-Tang/docxspec/blob/main/src/image/or_code.bmp)

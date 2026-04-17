@@ -33,9 +33,11 @@ def test_image():
 
 
 @pytest.fixture
-def output_dir(tmp_path):
-    """创建临时输出目录。"""
-    return tmp_path / "output"
+def output_dir():
+    """创建测试输出目录。"""
+    path = Path(__file__).parent / "output"
+    path.mkdir(parents=True, exist_ok=True)
+    return path
 
 
 def build_min_context(api: WordAPI):
@@ -562,7 +564,7 @@ class TestWordAPIAllInOne:
         assert os.path.getsize(final_path) > 0
 
     def test_generate_sample_document(self, template_path, test_image):
-        output_dir = Path(__file__).parent.parent / "output"
+        output_dir = Path(__file__).parent / "output"
         output_dir.mkdir(exist_ok=True)
         output_file = str(output_dir / "sample_test_output.docx")
 

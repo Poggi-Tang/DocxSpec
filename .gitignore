@@ -15,6 +15,7 @@ htmlcov/
 # Build
 build/
 dist/
+tests/output/
 
 # Virtual environments
 .venv/
