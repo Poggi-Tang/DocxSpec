@@ -1,51 +1,58 @@
 # docxspec
 
-[English](README.md) | 简体中文
+[English](https://github.com/Poggi-Tang/DocxSpec/blob/main/README.md) | 简体中文
 
 [![PyPI](https://img.shields.io/pypi/v/docxspec?cacheSeconds=300)](https://pypi.org/project/docxspec/)
 [![Python](https://img.shields.io/pypi/pyversions/docxspec?cacheSeconds=300)](https://pypi.org/project/docxspec/)
-[![License](https://img.shields.io/github/license/Poggi-Tang/docxspec)](https://github.com/Poggi-Tang/docxspec/blob/main/LICENSE)
-[![CI](https://github.com/Poggi-Tang/docxspec/actions/workflows/ci.yml/badge.svg)](https://github.com/Poggi-Tang/docxspec/actions/workflows/ci.yml)
-[![Publish](https://github.com/Poggi-Tang/docxspec/actions/workflows/publish.yml/badge.svg)](https://github.com/Poggi-Tang/docxspec/actions/workflows/publish.yml)
+[![License](https://img.shields.io/github/license/Poggi-Tang/DocxSpec)](https://github.com/Poggi-Tang/DocxSpec/blob/main/LICENSE)
+[![CI](https://github.com/Poggi-Tang/DocxSpec/actions/workflows/ci.yml/badge.svg)](https://github.com/Poggi-Tang/DocxSpec/actions/workflows/ci.yml)
+[![Publish](https://github.com/Poggi-Tang/DocxSpec/actions/workflows/publish.yml/badge.svg)](https://github.com/Poggi-Tang/DocxSpec/actions/workflows/publish.yml)
 
-`docxspec` 是一个基于 `python-docx` 的轻量级 Word 报告生成库。
+`docxspec` 是一个基于 `python-docx` 构建的 **结构化 Word 报告生成库**。
 
-它提供了一套小而清晰的 API，用于基于用户自备模板和结构化内容块生成 `.docx` 文档，适用于自动化测试报告、仿真报告和其他文档生成场景。
+它提供了一套轻量、模板驱动的 API，用于从用户提供的 `.docx` 模板生成标准化报告，适用于自动化测试报告、仿真报告以及工程文档生成场景。
 
-## 功能特点
+---
 
-- 基于模板的 Word 报告生成
-- 结构化内容容器 API
-- 支持文本、图片、表格插入
-- 富文本样式辅助工具
-- 支持图注和表注自动编号
-- 支持发布到 PyPI 的工程化配置
+## 功能特性
+
+* 基于模板的 Word 报告生成
+* 结构化内容容器（Container）机制
+* 支持文本、图片、表格插入
+* 富文本样式辅助工具
+* 图/表题注自动编号
+* 页码字段支持（`PAGE` / `NUMPAGES`）
+* 完整的 PyPI 打包与 CI/CD 流程
+
+---
 
 ## 安装
 
 从 PyPI 安装：
 
-```bash
+```bash id="w4v9lb"
 pip install docxspec
 ```
 
 或从源码安装：
 
-```bash
-git clone https://github.com/Poggi-Tang/docxspec.git
-cd docxspec
+```bash id="q2xw3e"
+git clone https://github.com/Poggi-Tang/DocxSpec.git
+cd DocxSpec
 pip install -e .
 ```
 
+---
+
 ## 快速开始
 
-```python
+```python id="3x9a8p"
 from docxspec import BODY_STYLE, WordAPI, make_rich_text
 
 api = WordAPI("your_template.docx")
 
 text = make_rich_text(
-    "这是一段插入到模板中的文字。",
+    "这是一段插入到模板中的文本内容",
     BODY_STYLE,
 )
 
@@ -76,40 +83,81 @@ api.render(
 )
 ```
 
-## Demo 目录
+---
 
-仓库中提供了一套可直接运行的示例，位于 `Demo/` 目录。
+## 工作原理
 
-这套示例统一使用一个公共模板：
+`docxspec` 的核心由两部分组成：
 
-- `Demo/template.docx`
+1. **WordAPI**
 
-包含以下示例脚本：
+   * 负责加载模板
+   * 渲染内容
+   * 输出最终 Word 文档
 
-- `Demo/demo1_paragraph.py`
-- `Demo/demo2_container_paragraph.py`
-- `Demo/demo3_container_image_caption.py`
-- `Demo/demo4_container_table_caption.py`
-- `Demo/demo5_container_table_image_caption.py`
-- `Demo/demo6_header_footer.py`
-- `Demo/demo7_styles_in_container.py`
-- `Demo/demo8_all_in_one.py`
+2. **Container（容器）机制**
 
-在仓库根目录下可以直接运行，例如：
+   * 用于构建结构化内容块
+   * 支持图片、表格、题注、段落等组合内容
 
-```bash
+典型流程如下：
+
+1. 准备 Word 模板
+2. 构建文本或容器内容
+3. 将内容传入 `api.render(...)`
+4. 输出最终报告
+
+---
+
+## 模板要求
+
+`docxspec` 是一个 **模板驱动型库**。
+
+使用时需要注意：
+
+* 模板结构需与 `render` 中的占位逻辑一致
+* 模板中需预先定义所需的段落/表格样式
+* 若项目依赖特定样式（如报告规范），需在模板中提前配置
+
+仓库中的 `Demo/template.docx` 提供了一个可运行示例
+（注意：Demo 模板不会被打包到发布的 wheel 中）
+
+---
+
+## 示例目录
+
+仓库中提供了完整示例，位于 `Demo/` 目录：
+
+公共模板：
+
+* `Demo/template.docx`
+
+示例脚本：
+
+* `Demo/demo1_paragraph.py`
+* `Demo/demo2_container_paragraph.py`
+* `Demo/demo3_container_image_caption.py`
+* `Demo/demo4_container_table_caption.py`
+* `Demo/demo5_container_table_image_caption.py`
+* `Demo/demo6_header_footer.py`
+* `Demo/demo7_styles_in_container.py`
+* `Demo/demo8_all_in_one.py`
+
+运行示例：
+
+```bash id="9g2l1s"
 python Demo/demo1_paragraph.py
 python Demo/demo8_all_in_one.py
 ```
 
-生成结果会写入 `Demo/output/`。
+生成文件默认输出到 `Demo/output/` 目录。
 
-注意：模板和示例资源是仓库中的演示内容，不再随发布到 PyPI 的 wheel 一起打包。
+---
 
 ## 项目结构
 
-```text
-docxspec
+```text id="b7n3kx"
+DocxSpec
 ├── .github/
 │   └── workflows/
 ├── Demo/
@@ -127,25 +175,30 @@ docxspec
 └── pyproject.toml
 ```
 
-## 发布自动化
+---
 
-当前仓库已经按较完整的 Python 开源库流程整理：
+## 发布流程
 
-- **CI**：在 push 和 pull request 时自动执行 lint 与测试。
-- **Semantic Release**：自动更新版本号、CHANGELOG、Tag 和 GitHub Release。
-- **Trusted Publishing**：通过 GitHub Actions 向 PyPI 发布，无需手动维护 PyPI Token。
-- **构建产物**：同时生成 sdist 和 wheel。
+本项目采用标准 Python 包工程流程：
 
-## 本地开发
+* GitHub Actions 自动执行 CI（测试 / 校验）
+* 使用 Trusted Publishing 发布到 PyPI
+* 同时构建 sdist 和 wheel 包
 
-```bash
+---
+
+## 开发
+
+```bash id="x9m3pl"
 pip install -e .[dev]
 pytest
 ruff check .
 ```
 
-本地开发时，请自行在仓库或业务项目中准备 `.docx` 模板文件，并将模板路径显式传给 `WordAPI`。
+开发时建议自行准备 `.docx` 模板文件，并通过路径传入 `WordAPI`。
 
-## 许可协议
+---
 
-MIT License，详见 [LICENSE](https://github.com/Poggi-Tang/docxspec/blob/main/LICENSE)。
+## 许可证
+
+MIT License，详见 [LICENSE](https://github.com/Poggi-Tang/DocxSpec/blob/main/LICENSE)。

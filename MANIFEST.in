@@ -2,4 +2,3 @@ include README.md
 include README_CN.md
 include LICENSE
 include CHANGELOG.md
-recursive-include src/docxspec/templates *
