@@ -5,15 +5,15 @@ on:
     tags:
       - "v*"
 
-permissions:
-  id-token: write
-
 jobs:
   publish:
-    runs-on: windows-latest
+    runs-on: ubuntu-latest
     environment:
       name: pypi
       url: https://pypi.org/p/docxspec
+    permissions:
+      id-token: write
+      contents: read
 
     steps:
       - uses: actions/checkout@v4
