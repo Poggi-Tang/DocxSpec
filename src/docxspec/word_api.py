@@ -988,6 +988,22 @@ class WordAPI:
             style or FOOTER_STYLE,
         )
 
+    def _build_auto_caption_parts(
+        self,
+        label: str,
+        seq_name: str,
+        title: str,
+    ) -> list[PartConfig]:
+        parts: list[PartConfig] = [
+            {"type": "text", "value": f"{label} "},
+            {"type": "field", "code": r"STYLEREF KL一级标题 \n \* MERGEFORMAT "},
+            {"type": "text", "value": "-"},
+            {"type": "field", "code": rf"SEQ {seq_name} \* ARABIC \s 1"},
+        ]
+        if title:
+            parts.append({"type": "text", "value": f" {title}"})
+        return parts
+
     def add_figure_caption_auto(
         self,
         container: Any,
@@ -996,11 +1012,7 @@ class WordAPI:
     ) -> Any:
         return self.add_field_paragraph(
             container,
-            [
-                {"type": "text", "value": "图 "},
-                {"type": "field", "code": r"SEQ Figure \* ARABIC"},
-                {"type": "text", "value": f" {title}"},
-            ],
+            self._build_auto_caption_parts("图", "图", title),
             style or CAPTION_STYLE,
         )
 
@@ -1012,11 +1024,7 @@ class WordAPI:
     ) -> Any:
         return self.add_field_paragraph(
             container,
-            [
-                {"type": "text", "value": "表 "},
-                {"type": "field", "code": r"SEQ Table \* ARABIC"},
-                {"type": "text", "value": f" {title}"},
-            ],
+            self._build_auto_caption_parts("表", "表", title),
             style or CAPTION_STYLE,
         )
 

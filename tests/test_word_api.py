@@ -372,6 +372,11 @@ class TestWordAPIAllInOne:
             CAPTION_STYLE,
         )
         assert paragraph is not None
+        xml = paragraph._element.xml
+        assert r"STYLEREF KL一级标题 \n \* MERGEFORMAT " in xml
+        assert r"SEQ 图 \* ARABIC \s 1" in xml
+        assert "系统架构图" in xml
+
 
     def test_add_table_caption_auto(self, template_path):
         api = WordAPI(template_path)
@@ -382,6 +387,10 @@ class TestWordAPIAllInOne:
             CAPTION_STYLE,
         )
         assert paragraph is not None
+        xml = paragraph._element.xml
+        assert r"STYLEREF KL一级标题 \n \* MERGEFORMAT " in xml
+        assert r"SEQ 表 \* ARABIC \s 1" in xml
+        assert "数据统计表" in xml
 
     # =========================
     # 8. render 能力

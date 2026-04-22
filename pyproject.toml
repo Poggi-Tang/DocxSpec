@@ -4,13 +4,13 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "docxspec"
-version = "0.0.1"
+version = "0.0.2"
 description = "Lightweight Word report generation library based on python-docx"
 readme = "README.md"
 requires-python = ">=3.11"
 license = "MIT"
 authors = [
-  { name = "poggio", email = "2322806855@qq.com" }
+  { name = "Poggi-Tang", email = "2322806855@qq.com" }
 ]
 keywords = ["word", "docx", "report", "automation", "python-docx"]
 classifiers = [
@@ -58,7 +58,6 @@ namespaces = false
 docxspec = [
   "py.typed"
 ]
-
 [tool.pytest.ini_options]
 minversion = "8.0"
 addopts = "-ra --strict-markers --strict-config"
