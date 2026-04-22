@@ -15,7 +15,7 @@ from .word_styles import (
     make_table_style,
 )
 
-__version__ = "0.0.2"
+__version__ = "0.0.3"
 
 __all__ = [
     "WordAPI",
