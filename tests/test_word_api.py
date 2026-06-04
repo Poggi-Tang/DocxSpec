@@ -8,6 +8,8 @@ from pathlib import Path
 
 import pytest
 from docx import Document
+from docx.oxml import OxmlElement
+from docx.oxml.ns import qn
 
 from docxspec import WordAPI, make_rich_text, make_table_style
 from docxspec.word_styles import (
@@ -47,6 +49,154 @@ def build_min_context(api: WordAPI):
         "table_tag": api.new_container().subdoc,
         "result": api.new_container().subdoc,
     }
+
+
+def _add_field_run(paragraph, field_code: str, result: str = "1"):
+    begin = paragraph.add_run()
+    fld_begin = OxmlElement("w:fldChar")
+    fld_begin.set(qn("w:fldCharType"), "begin")
+    begin._r.append(fld_begin)
+
+    instr_run = paragraph.add_run()
+    instr = OxmlElement("w:instrText")
+    instr.set(qn("xml:space"), "preserve")
+    instr.text = field_code
+    instr_run._r.append(instr)
+
+    sep = paragraph.add_run()
+    fld_sep = OxmlElement("w:fldChar")
+    fld_sep.set(qn("w:fldCharType"), "separate")
+    sep._r.append(fld_sep)
+
+    paragraph.add_run(result)
+
+    end = paragraph.add_run()
+    fld_end = OxmlElement("w:fldChar")
+    fld_end.set(qn("w:fldCharType"), "end")
+    end._r.append(fld_end)
+
+
+def test_extract_table_block_preserves_caption_field_and_table(tmp_path):
+    template = tmp_path / "block_template.docx"
+    output = tmp_path / "block_output.docx"
+
+    doc = Document()
+    doc.add_paragraph("{{SOURCE_BLOCK}}")
+    caption = doc.add_paragraph("表 ")
+    _add_field_run(caption, r"SEQ 表 \* ARABIC", "1")
+    caption.add_run(" {{TABLE_TITLE}}")
+    table = doc.add_table(rows=2, cols=2)
+    table.cell(0, 0).text = "测试项标识"
+    table.cell(0, 1).text = "{{ITEM_ID}}"
+    table.cell(1, 0).text = "测试项名称"
+    table.cell(1, 1).text = "{{ITEM_NAME}}"
+    doc.add_paragraph("{{INSERT_HERE}}")
+    doc.save(template)
+
+    api = WordAPI(str(template))
+    block = api.extract_table_block("{{SOURCE_BLOCK}}", remove_block=True)
+    block.replace_text(
+        {
+            "{{TABLE_TITLE}}": "默认图标显示功能",
+            "{{ITEM_ID}}": "FT_Integrator_UI_001",
+            "{{ITEM_NAME}}": "默认图标显示功能",
+        }
+    )
+    api.insert_block_at_marker("{{INSERT_HERE}}", block)
+    api.render({}, str(output))
+
+    result = Document(output)
+    text = "\n".join(p.text for p in result.paragraphs)
+    assert "{{SOURCE_BLOCK}}" not in text
+    assert "{{INSERT_HERE}}" not in text
+    assert "默认图标显示功能" in text
+    assert any(
+        "FT_Integrator_UI_001" in cell.text
+        for table in result.tables
+        for row in table.rows
+        for cell in row.cells
+    )
+
+    caption_paragraph = result.paragraphs[-1]
+    assert caption_paragraph._p.xpath(".//w:instrText")
+
+
+def test_block_template_clone_keeps_instances_independent(tmp_path):
+    template = tmp_path / "block_template_clone.docx"
+
+    doc = Document()
+    doc.add_paragraph("{{SOURCE_BLOCK}}")
+    doc.add_paragraph("Caption {{TITLE}}")
+    table = doc.add_table(rows=1, cols=2)
+    table.cell(0, 0).text = "id"
+    table.cell(0, 1).text = "{{ITEM_ID}}"
+    doc.save(template)
+
+    api = WordAPI(str(template))
+    source = api.extract_table_block("{{SOURCE_BLOCK}}")
+    first = source.clone().replace_text({"{{ITEM_ID}}": "ITEM_001"})
+    second = source.clone().replace_text({"{{ITEM_ID}}": "ITEM_002"})
+
+    first_text = "".join(node.text or "" for element in first.elements for node in element.xpath(".//w:t"))
+    second_text = "".join(node.text or "" for element in second.elements for node in element.xpath(".//w:t"))
+    source_text = "".join(node.text or "" for element in source.elements for node in element.xpath(".//w:t"))
+
+    assert "ITEM_001" in first_text
+    assert "ITEM_002" in second_text
+    assert "{{ITEM_ID}}" in source_text
+
+
+def test_block_template_table_index_and_missing_table(tmp_path):
+    template = tmp_path / "block_template_table.docx"
+
+    doc = Document()
+    doc.add_paragraph("{{SOURCE_BLOCK}}")
+    doc.add_paragraph("Caption")
+    doc.add_table(rows=1, cols=1).cell(0, 0).text = "first"
+    doc.save(template)
+
+    api = WordAPI(str(template))
+    block = api.extract_table_block("{{SOURCE_BLOCK}}")
+
+    assert block.table().tag == qn("w:tbl")
+    with pytest.raises(IndexError, match="不存在"):
+        block.table(1)
+
+
+def test_container_add_block_renders_extracted_block(tmp_path):
+    template = tmp_path / "block_container_template.docx"
+    output = tmp_path / "block_container_output.docx"
+
+    doc = Document()
+    doc.add_paragraph("{{p result}}")
+    doc.add_paragraph("{{SOURCE_BLOCK}}")
+    doc.add_paragraph("Caption {{TITLE}}")
+    table = doc.add_table(rows=1, cols=2)
+    table.cell(0, 0).text = "id"
+    table.cell(0, 1).text = "{{ITEM_ID}}"
+    doc.save(template)
+
+    api = WordAPI(str(template))
+    block = api.extract_table_block("{{SOURCE_BLOCK}}", remove_block=True)
+    container = api.new_container()
+    container.add_block(block.clone().replace_text({"{{TITLE}}": "Block A", "{{ITEM_ID}}": "ITEM_A"}))
+    container.add_block(block.clone().replace_text({"{{TITLE}}": "Block B", "{{ITEM_ID}}": "ITEM_B"}))
+    api.render({"result": container.subdoc}, str(output))
+
+    result = Document(output)
+    full_text = "\n".join(paragraph.text for paragraph in result.paragraphs)
+    cell_text = "\n".join(
+        cell.text
+        for table in result.tables
+        for row in table.rows
+        for cell in row.cells
+    )
+
+    assert "{{SOURCE_BLOCK}}" not in full_text
+    assert "Block A" in full_text
+    assert "Block B" in full_text
+    assert "ITEM_A" in cell_text
+    assert "ITEM_B" in cell_text
 
 
 class TestWordAPIAllInOne:

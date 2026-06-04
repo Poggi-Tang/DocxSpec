@@ -20,6 +20,7 @@ It provides a small, template-driven API for generating `.docx` reports from use
 * Rich text style helpers
 * Automatic figure and table caption numbering
 * Page field helpers such as `PAGE` and `NUMPAGES`
+* KL-standard document classification, validation, and standard document assembly
 * PyPI-ready packaging and CI/CD workflows
 
 ## Installation
@@ -101,7 +102,28 @@ When preparing your own template, make sure that:
 * the required paragraph / table styles exist in the template
 * custom report styles are defined in advance if your project depends on them
 
-The demo template in `Demo/template.docx` is provided as a runnable example, but demo assets are not packaged into the published wheel.
+The demo template in `Demo/template.docx` is provided as a runnable example, but demo assets are not packaged into the published wheel. The KL master template used by `build_standard_docx()` is bundled separately as package data.
+
+## KL Standard Documents
+
+`docxspec` also provides KL-standard document utilities for workflows that start from an
+existing body-only `.docx` file and need a standardized output document.
+
+```python
+from docxspec import build_standard_docx, check_word_standard, classify_docx_body
+
+report = classify_docx_body("body.docx")
+build_result = build_standard_docx(
+    "body.docx",
+    "standard.docx",
+    "Demo/template.docx",
+)
+check_result = check_word_standard("standard.docx")
+```
+
+These APIs reuse the KL styles and field-code rules from the master template. They are intended
+for document standardization and validation, while `WordAPI` remains the primary API for
+template-driven report generation.
 
 ## Demo Directory
 
@@ -121,15 +143,58 @@ Example scripts:
 * `Demo/demo6_header_footer.py`
 * `Demo/demo7_styles_in_container.py`
 * `Demo/demo8_all_in_one.py`
+* `Demo/demo9_block_template.py`
+* `Demo/demo10_kl_standard.py`
 
 Run them from the repository root, for example:
 
 ```bash id="zr2qj0"
 python Demo/demo1_paragraph.py
 python Demo/demo8_all_in_one.py
+python Demo/demo9_block_template.py
+python Demo/demo10_kl_standard.py
 ```
 
 Generated files are written to `Demo/output/`.
+
+## Reusing Word Blocks
+
+`BlockTemplate` can extract a repeated `caption + table` block from an existing Word
+template and insert cloned copies back into a document or a container. This is useful
+when the template already contains field captions, merged cells, images, or carefully
+prepared table styles.
+
+Place a marker paragraph immediately before the source caption and table:
+
+```text
+{{SOURCE_TABLE_BLOCK}}
+Table <SEQ field> {{TABLE_TITLE}}
+<table with placeholders>
+```
+
+Then extract and reuse the block:
+
+```python
+from docxspec import WordAPI
+
+api = WordAPI("template.docx")
+block_template = api.extract_table_block("{{SOURCE_TABLE_BLOCK}}", remove_block=True)
+
+container = api.new_container()
+container.add_block(
+    block_template.clone().replace_text(
+        {
+            "{{TABLE_TITLE}}": "Default icon display",
+            "{{ITEM_ID}}": "FT_Demo_UI_001",
+        }
+    )
+)
+
+api.render({"result": container.subdoc}, "report.docx")
+```
+
+For documents that must preserve Word field captions as strictly as possible, prefer
+`insert_block_at_marker(...)` followed by saving the document directly.
 
 ## Project Structure
 

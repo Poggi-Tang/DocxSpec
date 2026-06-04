@@ -1,7 +1,14 @@
-# -*- coding: utf-8 -*-
 """Public exports for docxspec."""
 
-from .word_api import DocContainer, WordAPI
+from .kl_standard import (
+    DEFAULT_MASTER_TEMPLATE,
+    build_standard_docx,
+    check_word_standard,
+    classify_docx_body,
+    classify_heading,
+    clean_heading_number,
+)
+from .word_api import BlockTemplate, DocContainer, WordAPI
 from .word_styles import (
     BODY_STYLE,
     CAPTION_STYLE,
@@ -15,11 +22,18 @@ from .word_styles import (
     make_table_style,
 )
 
-__version__ = "0.0.3"
+__version__ = "0.0.4"
 
 __all__ = [
     "WordAPI",
+    "BlockTemplate",
     "DocContainer",
+    "DEFAULT_MASTER_TEMPLATE",
+    "check_word_standard",
+    "classify_docx_body",
+    "build_standard_docx",
+    "clean_heading_number",
+    "classify_heading",
     "TextStyle",
     "CellStyle",
     "TableStyle",

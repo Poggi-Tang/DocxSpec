@@ -10,6 +10,7 @@
 
 from __future__ import annotations
 
+import copy
 import os
 import unicodedata
 from pathlib import Path
@@ -49,6 +50,61 @@ PartConfig = dict[str, Any]
 TableConfig = dict[str, Any]
 
 
+class BlockTemplate:
+    """从 Word 模板中抽取出来、可重复使用的 OpenXML 块。
+
+    该对象直接保存 WordprocessingML 原始节点，而不是重新创建段落或表格。
+    因此，块中的题注域、表格样式、合并单元格、图片、段落样式等底层格式
+    在 clone 后再次插入文档时可以尽量保持不变。
+    """
+
+    def __init__(self, elements: Sequence[Any]) -> None:
+        """保存块节点的深拷贝，避免后续修改污染来源模板。"""
+        if not elements:
+            raise ValueError("块模板不能为空")
+        self.elements = [copy.deepcopy(element) for element in elements]
+
+    def clone(self) -> "BlockTemplate":
+        """复制一个新的块实例，用于同一模板块的多次填充和插入。"""
+        return BlockTemplate(self.elements)
+
+    def replace_text(self, mapping: dict[str, Any]) -> "BlockTemplate":
+        """替换块内所有 ``w:t`` 文本节点中的占位符。
+
+        这里有意只替换文本节点，不重建 run 或 paragraph。这样可以保留
+        占位符周围原有的字体、域代码、题注结构等格式信息。需要注意的是，
+        该方法适用于占位符没有被 Word 拆分到多个 run 的常见场景。
+        """
+        if not mapping:
+            return self
+
+        normalized = {
+            str(key): "" if value is None else str(value)
+            for key, value in mapping.items()
+        }
+        for element in self.elements:
+            for text_node in element.xpath(".//w:t"):
+                if text_node.text is None:
+                    continue
+                value = text_node.text
+                for old, new in normalized.items():
+                    value = value.replace(old, new)
+                text_node.text = value
+        return self
+
+    def table(self, index: int = 0) -> Any:
+        """返回块内第 ``index`` 个表格的原始 XML 节点。"""
+        tables = [
+            element
+            for element in self.elements
+            if getattr(element, "tag", None) == qn("w:tbl")
+        ]
+        try:
+            return tables[index]
+        except IndexError as exc:
+            raise IndexError(f"块模板中不存在第 {index} 个表格") from exc
+
+
 class DocContainer:
     """子文档容器，用于链式调用构建 Word 文档内容。
 
@@ -61,6 +117,16 @@ class DocContainer:
     def __init__(self, api: "WordAPI", subdoc: Any) -> None:
         self.api = api
         self.subdoc = subdoc
+
+    def add_block(self, block: BlockTemplate) -> "DocContainer":
+        """把一个块模板追加到容器中。
+
+        该方法用于把已经从 Word 模板中抽取出来的题注、表格或其他连续节点
+        放入 docxtpl 的子文档容器。块会被深拷贝后追加，调用方可以继续复用
+        原始 ``BlockTemplate``。
+        """
+        self.api.append_block(self.subdoc, block)
+        return self
 
     def add_title(self, text: str, style: Optional[TextStyle] = None) -> "DocContainer":
         """添加主标题。
@@ -274,6 +340,128 @@ class WordAPI:
         :return: 新的 DocContainer 实例
         """
         return DocContainer(self, self.doc.new_subdoc())
+
+    @staticmethod
+    def _paragraph_text(paragraph_element: Any) -> str:
+        return "".join(node.text or "" for node in paragraph_element.xpath(".//w:t"))
+
+    @staticmethod
+    def _is_paragraph(element: Any) -> bool:
+        return getattr(element, "tag", None) == qn("w:p")
+
+    @staticmethod
+    def _is_table(element: Any) -> bool:
+        return getattr(element, "tag", None) == qn("w:tbl")
+
+    def _iter_body_elements(self) -> list[Any]:
+        document = self.doc.get_docx()
+        return list(document.element.body)
+
+    def _find_marker_element(self, marker: str) -> Any:
+        for element in self._iter_body_elements():
+            if self._is_paragraph(element) and marker in self._paragraph_text(element):
+                return element
+        raise ValueError(f"未找到块标记: {marker}")
+
+    def extract_table_block(
+        self,
+        marker: str,
+        *,
+        include_blank_before: bool = True,
+        remove_marker: bool = False,
+        remove_block: bool = False,
+    ) -> BlockTemplate:
+        """抽取标记段落后方的“题注 + 表格”块。
+
+        典型用法是在 Word 模板中把 ``marker`` 放在标准表题注前一段。
+        本方法会从该标记之后开始收集空段落、题注段落和紧随其后的表格，
+        并直接保存原始 XML，因此可保留题注域和表格内部复杂格式。
+
+        :param marker: 用于定位来源块的标记文本
+        :param include_blank_before: 是否把标记和题注之间的空段落一并抽取
+        :param remove_marker: 抽取后是否删除标记段落
+        :param remove_block: 抽取后是否删除标记段落和来源块本身
+        :return: 可复制、可填充、可插入的 :class:`BlockTemplate`
+        """
+        marker_element = self._find_marker_element(marker)
+        elements = self._iter_body_elements()
+        marker_index = elements.index(marker_element)
+
+        collected: list[Any] = []
+        seen_caption = False
+        seen_table = False
+
+        for element in elements[marker_index + 1:]:
+            if self._is_paragraph(element):
+                paragraph_text = self._paragraph_text(element).strip()
+                if not paragraph_text and include_blank_before and not seen_caption:
+                    collected.append(element)
+                    continue
+                if not seen_caption:
+                    collected.append(element)
+                    seen_caption = True
+                    continue
+                if not seen_table:
+                    collected.append(element)
+                    continue
+                break
+
+            if self._is_table(element):
+                collected.append(element)
+                seen_table = True
+                break
+
+            if seen_caption or collected:
+                collected.append(element)
+
+        if not seen_caption or not seen_table:
+            raise ValueError(f"标记 {marker!r} 后未找到完整的题注+表格块")
+
+        if remove_block:
+            parent = marker_element.getparent()
+            for element in [marker_element, *collected]:
+                if element.getparent() is parent:
+                    parent.remove(element)
+        elif remove_marker:
+            marker_element.getparent().remove(marker_element)
+
+        return BlockTemplate(collected)
+
+    def insert_block_at_marker(
+        self,
+        marker: str,
+        block: BlockTemplate,
+        *,
+        remove_marker: bool = True,
+    ) -> None:
+        """把块插入到正文中指定标记段落之前。
+
+        该方法绕过 ``docxtpl.render``，直接操作主文档 XML。适合需要尽量
+        保留 Word 域题注、已有表格样式、图片关系等格式的场景。
+        """
+        marker_element = self._find_marker_element(marker)
+        parent = marker_element.getparent()
+        insert_index = parent.index(marker_element)
+
+        for element in block.elements:
+            parent.insert(insert_index, copy.deepcopy(element))
+            insert_index += 1
+
+        if remove_marker:
+            parent.remove(marker_element)
+
+    def append_block(self, container: Any, block: BlockTemplate) -> Any:
+        """把块追加到子文档或类文档容器中。"""
+        target = getattr(container, "_element", None)
+        if target is None:
+            target = getattr(container, "element", None)
+        if target is None:
+            raise TypeError("container 不支持追加 OpenXML 块")
+
+        body = target.body if hasattr(target, "body") else target
+        for element in block.elements:
+            body.append(copy.deepcopy(element))
+        return container
 
     @staticmethod
     def _check_color(color: Optional[str]) -> Optional[str]:

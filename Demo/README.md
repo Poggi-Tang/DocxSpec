@@ -40,6 +40,10 @@
   演示把公开样式尽量都走一遍，其中正文相关样式放进容器，页眉页脚样式通过 `write_header_footer()` 演示。
 - `demo8_all_in_one.py`
   演示文字、图片、表格、容器、题注、分页、页眉页脚全部一起使用。
+- `demo9_block_template.py`
+  演示从 Word 模板中抽取“题注 + 表格”块，替换占位符后放入容器重复生成。
+- `demo10_kl_standard.py`
+  演示把一个正文 Word 文档转换为 KL 标准文档，并生成分类和检查报告。
 
 ## 运行方式
 
@@ -54,6 +58,8 @@ python Demo/demo5_container_table_image_caption.py
 python Demo/demo6_header_footer.py
 python Demo/demo7_styles_in_container.py
 python Demo/demo8_all_in_one.py
+python Demo/demo9_block_template.py
+python Demo/demo10_kl_standard.py
 ```
 
 输出文件统一写到 `Demo/output/` 目录。
@@ -76,3 +82,25 @@ python Demo/demo8_all_in_one.py
 - `KL图片`
 - `KL表格表头`
 - `KL表格文字`
+
+## BlockTemplate 示例
+
+- `demo9_block_template.py`
+  演示从 Word 模板中抽取“题注 + 表格”块，替换占位符后放入容器重复生成。
+
+运行方式：
+
+```bash
+python Demo/demo9_block_template.py
+```
+
+## KL 标准化示例
+
+- `demo10_kl_standard.py`
+  演示 `classify_docx_body()`、`build_standard_docx()` 和 `check_word_standard()` 三个入口。
+
+运行方式：
+
+```bash
+python Demo/demo10_kl_standard.py
+```

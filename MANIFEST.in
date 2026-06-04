@@ -1,4 +1,5 @@
 include README.md
-include README_CN.md
+include README.zh-CN.md
 include LICENSE
 include CHANGELOG.md
+recursive-include src/docxspec/assets *.docx *.py
