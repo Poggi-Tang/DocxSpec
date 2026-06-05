@@ -21,6 +21,9 @@ def test_clean_heading_number_and_classify_heading() -> None:
 
     assert cleaned == "接口设计"
     assert kind == "heading_2"
+    assert clean_heading_number("1.2.3.4 四级标题")[1] == "heading_4"
+    assert clean_heading_number("1.2.3.4.5 五级标题")[1] == "heading_5"
+    assert clean_heading_number("1.2.3.4.5.6 六级标题")[1] == "heading_6"
     assert classify_heading("第一章 需求背景")[0] == "heading_1"
     assert classify_heading("① 这是正文条目")[0] == "body"
 
@@ -60,6 +63,11 @@ def test_default_master_template_is_packaged() -> None:
     assert DEFAULT_MASTER_TEMPLATE.exists()
     report = check_word_standard(DEFAULT_MASTER_TEMPLATE)
     assert report["required_styles_ok"] is True
+    style_names = report["found_styles"]
+    assert "KL四级标题" in style_names
+    assert "KL五级标题" in style_names
+    assert "KL六级标题" in style_names
+    assert "KL其他标题" not in style_names
 
 
 def test_build_standard_docx_from_body_document(tmp_path: Path) -> None:
@@ -102,3 +110,32 @@ def test_build_standard_docx_uses_packaged_template_by_default(tmp_path: Path) -
     assert output.exists()
     assert report["template"] == str(DEFAULT_MASTER_TEMPLATE)
     assert check_word_standard(output)["required_styles_ok"] is True
+
+
+def test_build_standard_docx_preserves_deep_heading_levels(tmp_path: Path) -> None:
+    body = tmp_path / "deep_headings.docx"
+    output = tmp_path / "deep_standard.docx"
+
+    doc = Document()
+    doc.add_paragraph("积分元件测试大纲")
+    for text in [
+        "1 一级标题",
+        "1.1 二级标题",
+        "1.1.1 三级标题",
+        "1.1.1.1 四级标题",
+        "1.1.1.1.1 五级标题",
+        "1.1.1.1.1.1 六级标题",
+    ]:
+        doc.add_paragraph(text)
+    doc.save(body)
+
+    build_standard_docx(body, output)
+    report = classify_docx_body(output)
+    summary = report["summary"]
+
+    assert summary["heading_1"] >= 1
+    assert summary["heading_2"] >= 1
+    assert summary["heading_3"] >= 1
+    assert summary["heading_4"] >= 1
+    assert summary["heading_5"] >= 1
+    assert summary["heading_6"] >= 1

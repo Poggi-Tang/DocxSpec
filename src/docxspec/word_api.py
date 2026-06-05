@@ -159,7 +159,10 @@ class DocContainer:
             style = {
                 1: make_text_style(style_name="KL一级标题"),
                 2: make_text_style(style_name="KL二级标题"),
-                3: make_text_style(style_name="KL其他标题"),
+                3: make_text_style(style_name="KL三级标题"),
+                4: make_text_style(style_name="KL四级标题"),
+                5: make_text_style(style_name="KL五级标题"),
+                6: make_text_style(style_name="KL六级标题"),
             }.get(level, BODY_STYLE)
         self.api.add_paragraph(self.subdoc, text, style)
         return self

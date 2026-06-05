@@ -31,7 +31,9 @@ STYLE_MAIN_TITLE = "KL主标题"
 STYLE_HEADING_1 = "KL一级标题"
 STYLE_HEADING_2 = "KL二级标题"
 STYLE_HEADING_3 = "KL三级标题"
-STYLE_HEADING_OTHER = "KL其他标题"
+STYLE_HEADING_4 = "KL四级标题"
+STYLE_HEADING_5 = "KL五级标题"
+STYLE_HEADING_6 = "KL六级标题"
 STYLE_BODY = "KL正文"
 STYLE_CAPTION = "KL题注"
 STYLE_TABLE_HEADER = "KL表格表头"
@@ -42,7 +44,9 @@ REQUIRED_STYLES = [
     STYLE_HEADING_1,
     STYLE_HEADING_2,
     STYLE_HEADING_3,
-    STYLE_HEADING_OTHER,
+    STYLE_HEADING_4,
+    STYLE_HEADING_5,
+    STYLE_HEADING_6,
     STYLE_BODY,
     STYLE_CAPTION,
     STYLE_TABLE_HEADER,
@@ -70,7 +74,18 @@ STYLE_TO_TYPE = {
     "Heading 3": ("heading_3", "high"),
     "标题 3": ("heading_3", "high"),
     "3": ("heading_3", "medium"),
-    STYLE_HEADING_OTHER: ("heading_other", "high"),
+    STYLE_HEADING_4: ("heading_4", "high"),
+    "Heading 4": ("heading_4", "high"),
+    "标题 4": ("heading_4", "high"),
+    "4": ("heading_4", "medium"),
+    STYLE_HEADING_5: ("heading_5", "high"),
+    "Heading 5": ("heading_5", "high"),
+    "标题 5": ("heading_5", "high"),
+    "5": ("heading_5", "medium"),
+    STYLE_HEADING_6: ("heading_6", "high"),
+    "Heading 6": ("heading_6", "high"),
+    "标题 6": ("heading_6", "high"),
+    "6": ("heading_6", "medium"),
 }
 
 CHINESE_NUM = "一二三四五六七八九十百千万〇零两"
@@ -80,6 +95,9 @@ NUMBER_PREFIX_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
     ("heading_1", re.compile(rf"^第?\s*[{CHINESE_NUM}]+\s*[章节篇部分]\s*[、.．:：]?\s*")),
     ("heading_1", re.compile(rf"^[{CHINESE_NUM}]+[、.．]\s*")),
     ("heading_1", re.compile(r"^\d+[、．]\s*|^\d+\s+")),
+    ("heading_6", re.compile(r"^\d+[.．]\d+[.．]\d+[.．]\d+[.．]\d+[.．]\d+[、.．]?\s*")),
+    ("heading_5", re.compile(r"^\d+[.．]\d+[.．]\d+[.．]\d+[.．]\d+[、.．]?\s*")),
+    ("heading_4", re.compile(r"^\d+[.．]\d+[.．]\d+[.．]\d+[、.．]?\s*")),
     ("heading_3", re.compile(r"^\d+[.．]\d+[.．]\d+[、.．]?\s*")),
     ("heading_2", re.compile(r"^\d+[.．]\d+[、.．]?\s*")),
     ("heading_2", re.compile(rf"^[（(]\s*[{CHINESE_NUM}]+\s*[）)]\s*")),
@@ -209,12 +227,19 @@ def classify_heading(text: str, paragraph: Paragraph | None = None) -> tuple[str
     if paragraph is not None:
         raw_style = style_name(paragraph)
         normalized = raw_style.replace(" ", "").lower()
-        if raw_style in {STYLE_HEADING_1, "标题 1", "Heading 1"} or normalized in {"heading1", "1"}:
-            return "heading_1", raw, "matched heading-1 style", "high"
-        if raw_style in {STYLE_HEADING_2, "标题 2", "Heading 2"} or normalized in {"heading2", "2"}:
-            return "heading_2", raw, "matched heading-2 style", "high"
-        if raw_style in {STYLE_HEADING_3, "标题 3", "Heading 3"} or normalized in {"heading3", "3"}:
-            return "heading_3", raw, "matched heading-3 style", "high"
+        style_map = {
+            STYLE_HEADING_1: "heading_1",
+            STYLE_HEADING_2: "heading_2",
+            STYLE_HEADING_3: "heading_3",
+            STYLE_HEADING_4: "heading_4",
+            STYLE_HEADING_5: "heading_5",
+            STYLE_HEADING_6: "heading_6",
+        }
+        if raw_style in style_map:
+            return style_map[raw_style], raw, f"matched {raw_style} style", "high"
+        for level in range(1, 7):
+            if normalized in {f"heading{level}", f"标题{level}", str(level)}:
+                return f"heading_{level}", raw, f"matched heading-{level} style", "high"
 
     if raw in H1_EXACT_TITLES:
         return "heading_1", raw, "matched known major section title", "high"
@@ -544,8 +569,12 @@ def standardize_appended_body(
         elif kind == "heading_3":
             current_heading_3 = clean_text
             normalize_paragraph_to_style(block, STYLE_HEADING_3)
-        elif kind == "heading_other":
-            normalize_paragraph_to_style(block, STYLE_HEADING_OTHER)
+        elif kind == "heading_4":
+            normalize_paragraph_to_style(block, STYLE_HEADING_4)
+        elif kind == "heading_5":
+            normalize_paragraph_to_style(block, STYLE_HEADING_5)
+        elif kind == "heading_6":
+            normalize_paragraph_to_style(block, STYLE_HEADING_6)
         else:
             normalize_paragraph_to_style(block, STYLE_BODY)
 
@@ -685,9 +714,13 @@ def _classify_paragraph_xml(p: ET.Element, style_names: dict[str, str]) -> tuple
         return "table_caption", "caption field/text matched table", "high"
     if _has_figure_xml(p):
         return "figure", "paragraph contains drawing or pict", "high"
+    normalized_style = (style_value or "").replace(" ", "").lower()
     if style_value in STYLE_TO_TYPE:
         kind, confidence = STYLE_TO_TYPE[style_value]
         return kind, f"matched style {style_value}", confidence
+    for level in range(1, 7):
+        if normalized_style in {f"heading{level}", f"标题{level}", str(level)}:
+            return f"heading_{level}", f"matched style {style_value}", "high"
     kind, _cleaned, reason, confidence = classify_heading(text)
     return (
         kind if text else "blank",
@@ -859,6 +892,7 @@ def check_word_standard(docx: Path | str) -> dict[str, Any]:
     ]
     return {
         "source": str(docx_path),
+        "found_styles": sorted(found_styles),
         "required_styles_ok": not missing_styles,
         "missing_styles": missing_styles,
         "caption_fields_ok": not missing_fields,
@@ -876,7 +910,9 @@ __all__ = [
     "STYLE_HEADING_1",
     "STYLE_HEADING_2",
     "STYLE_HEADING_3",
-    "STYLE_HEADING_OTHER",
+    "STYLE_HEADING_4",
+    "STYLE_HEADING_5",
+    "STYLE_HEADING_6",
     "STYLE_BODY",
     "STYLE_CAPTION",
     "STYLE_TABLE_HEADER",

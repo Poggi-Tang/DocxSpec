@@ -255,6 +255,27 @@ H3_STYLE = make_text_style(
     bold=False,
 )
 
+H4_STYLE = make_text_style(
+    style_name="KL四级标题",
+    font_name=DEFAULT_FONT_NAME,
+    font_size="小四",
+    bold=False,
+)
+
+H5_STYLE = make_text_style(
+    style_name="KL五级标题",
+    font_name=DEFAULT_FONT_NAME,
+    font_size="小四",
+    bold=False,
+)
+
+H6_STYLE = make_text_style(
+    style_name="KL六级标题",
+    font_name=DEFAULT_FONT_NAME,
+    font_size="小四",
+    bold=False,
+)
+
 BODY_STYLE = make_text_style(
     style_name="KL正文",
     font_name=DEFAULT_FONT_NAME,
@@ -322,6 +343,9 @@ __all__ = [
     "H1_STYLE",
     "H2_STYLE",
     "H3_STYLE",
+    "H4_STYLE",
+    "H5_STYLE",
+    "H6_STYLE",
     "BODY_STYLE",
     "CAPTION_STYLE",
     "HEADER_STYLE",
