@@ -23,7 +23,7 @@ from .word_styles import (
     make_table_style,
 )
 
-__version__ = "0.0.6"
+__version__ = "0.0.7"
 
 __all__ = [
     "WordAPI",
