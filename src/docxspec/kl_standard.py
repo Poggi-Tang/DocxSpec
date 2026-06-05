@@ -11,6 +11,7 @@ import re
 import shutil
 import tempfile
 import zipfile
+from collections import defaultdict, deque
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
@@ -90,6 +91,19 @@ STYLE_TO_TYPE = {
 
 CHINESE_NUM = "一二三四五六七八九十百千万〇零两"
 H1_EXACT_TITLES = {"需求背景", "从需求分析到方案落地", "示例演示", "总结"}
+FRONT_MATTER_TITLES = {
+    "目录",
+    "目 录",
+    "修订记录",
+    "版本记录",
+    "变更记录",
+    "图目录",
+    "图录",
+    "插图清单",
+    "表目录",
+    "表录",
+    "表格清单",
+}
 
 NUMBER_PREFIX_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
     ("heading_1", re.compile(rf"^第?\s*[{CHINESE_NUM}]+\s*[章节篇部分]\s*[、.．:：]?\s*")),
@@ -100,15 +114,27 @@ NUMBER_PREFIX_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
     ("heading_4", re.compile(r"^\d+[.．]\d+[.．]\d+[.．]\d+[、.．]?\s*")),
     ("heading_3", re.compile(r"^\d+[.．]\d+[.．]\d+[、.．]?\s*")),
     ("heading_2", re.compile(r"^\d+[.．]\d+[、.．]?\s*")),
-    ("heading_2", re.compile(rf"^[（(]\s*[{CHINESE_NUM}]+\s*[）)]\s*")),
-    ("heading_2", re.compile(rf"^[{CHINESE_NUM}]+[）)]\s*")),
-    ("heading_3", re.compile(r"^[（(]\s*\d+\s*[）)]\s*")),
-    ("heading_3", re.compile(r"^\d+[）)]\s*")),
 ]
 
 CAPTION_TEXT_PATTERNS = {
     "figure_caption": re.compile(r"^\s*图\s*[\d一二三四五六七八九十]+[-－—.．]\d+\s+\S+"),
     "table_caption": re.compile(r"^\s*表\s*[\d一二三四五六七八九十]+[-－—.．]\d+\s+\S+"),
+}
+
+LIST_ITEM_PREFIX_PATTERN = re.compile(
+    rf"^((?:[（(]\s*(?:\d+|[{CHINESE_NUM}]+)\s*[）)])|(?:\d+|[{CHINESE_NUM}]+)[）)])\s*"
+)
+LIST_ITEM_BLOCK_KEYWORDS = {
+    "端口",
+    "选项",
+    "步骤",
+    "条件",
+    "参数值",
+    "输入信号",
+    "输出信号",
+    "信号",
+    "取值",
+    "默认值",
 }
 
 
@@ -200,6 +226,58 @@ def clean_heading_number(text: str) -> tuple[str, str | None]:
     return stripped, None
 
 
+def normalize_heading_text(text: str) -> str:
+    """清理标题文本中的制表符、换行符和多余空白。"""
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def is_code_like_line(text: str) -> bool:
+    """判断段落是否更像伪代码/代码行，而不是标题。"""
+    raw = text.replace("\u00a0", " ").strip()
+    if not raw:
+        return False
+    if re.fullmatch(r"[{}()\[\];,]+", raw):
+        return True
+    if raw.startswith(("}", "{", "//", "/*", "*/", "*", "#", "||", "&&", "|", "&")):
+        return True
+    if re.match(r"^(<=|>=|==|!=|<|>|\+|-|\*|/)", raw):
+        return True
+    if re.match(r"^(if|else|for|while|switch|case|return|break|continue)\b", raw):
+        return True
+    if re.match(r"^[_A-Za-z][\w.\->\[\]]*\s*(=|\+=|-=|\*=|/=|==|!=|<=|>=|<|>)", raw):
+        return True
+    if re.match(r"^[_A-Za-z][\w.\->\[\]]*\s*\(.*\)\s*;?$", raw):
+        return True
+    if re.search(r"[_A-Za-z][\w.\->\[\]]*\s*=", raw):
+        return True
+    if re.search(r"->|\+\+|--", raw):
+        return True
+    if raw.endswith((";", "{", "}")) and re.search(r"[_A-Za-z][\w.\->\[\]]*", raw):
+        return True
+    return False
+
+
+def split_list_item_prefix(text: str) -> tuple[str, str] | None:
+    """拆分 1）/（1）/一）这类单层编号列表项。"""
+    match = LIST_ITEM_PREFIX_PATTERN.match(text.strip())
+    if not match:
+        return None
+    return match.group(1), text.strip()[match.end() :].strip()
+
+
+def is_probable_list_item(text: str) -> bool:
+    """判断单层编号行是否更像正文列表项，而不是章节标题。"""
+    parsed = split_list_item_prefix(text)
+    if not parsed:
+        return False
+    _prefix, body = parsed
+    if not body:
+        return True
+    if len(body) > 18:
+        return True
+    return any(keyword in body for keyword in LIST_ITEM_BLOCK_KEYWORDS)
+
+
 def is_short_heading_candidate(text: str) -> bool:
     """判断短文本是否可作为普通标题候选。"""
     if not text or len(text) > 32:
@@ -216,8 +294,12 @@ def is_short_heading_candidate(text: str) -> bool:
 def classify_heading(text: str, paragraph: Paragraph | None = None) -> tuple[str, str, str, str]:
     """按文本和已有样式判断段落应使用的 KL 标题/正文类型。"""
     raw = text.strip()
+    if is_code_like_line(raw):
+        return "body", raw, "code-like line is body, not heading", "high"
     if re.match(r"^[①②③④⑤⑥⑦⑧⑨⑩]", raw):
         return "body", raw, "circled-number item is body, not heading", "high"
+    if is_probable_list_item(raw):
+        return "body", raw, "single-level numbered item is body pending outline analysis", "high"
     cleaned, numbered_kind = clean_heading_number(raw)
     if numbered_kind:
         if len(cleaned) > 42:
@@ -227,6 +309,8 @@ def classify_heading(text: str, paragraph: Paragraph | None = None) -> tuple[str
     if paragraph is not None:
         raw_style = style_name(paragraph)
         normalized = raw_style.replace(" ", "").lower()
+        if normalized == "listparagraph":
+            return "body", raw, "list paragraph is body, not standalone heading", "high"
         style_map = {
             STYLE_HEADING_1: "heading_1",
             STYLE_HEADING_2: "heading_2",
@@ -243,8 +327,6 @@ def classify_heading(text: str, paragraph: Paragraph | None = None) -> tuple[str
 
     if raw in H1_EXACT_TITLES:
         return "heading_1", raw, "matched known major section title", "high"
-    if is_short_heading_candidate(raw):
-        return "heading_2", raw, "short standalone title line", "medium"
     return "body", raw, "default body paragraph", "low"
 
 
@@ -294,6 +376,134 @@ def remove_template_sample_body(doc: Document) -> int:
     return start_idx
 
 
+def _is_front_matter_title(text: str) -> bool:
+    """判断文本是否是封面之后、正文之前的目录或记录类标题。"""
+    normalized = re.sub(r"\s+", "", text)
+    return text.strip() in FRONT_MATTER_TITLES or normalized in {
+        re.sub(r"\s+", "", title) for title in FRONT_MATTER_TITLES
+    }
+
+
+def _is_toc_like_block(block: dict[str, Any]) -> bool:
+    """判断块是否包含目录、图录或表录域。"""
+    fields = "\n".join(block.get("field_codes") or [])
+    text = str(block.get("text", "")).strip()
+    return "TOC" in fields or _is_front_matter_title(text)
+
+
+def detect_source_front_matter(source_report: dict[str, Any]) -> dict[str, Any]:
+    """识别源文档正文开始位置，用于跳过旧封面、目录、图录、表录等前置页。"""
+    blocks = source_report.get("blocks", [])
+    body_start = 0
+    reason = "no front matter detected"
+    for idx, block in enumerate(blocks):
+        text = str(block.get("text", "")).strip()
+        block_type = str(block.get("type", ""))
+        if _is_toc_like_block(block):
+            continue
+        if block_type == "heading_1" and not _is_front_matter_title(text):
+            body_start = idx
+            reason = "first non-front-matter level-1 heading"
+            break
+
+    skipped = []
+    for block in blocks[:body_start]:
+        text = str(block.get("text", "")).strip()
+        if _is_front_matter_title(text):
+            skip_reason = "front matter title"
+        elif _is_toc_like_block(block):
+            skip_reason = "toc/list field or title"
+        elif block.get("kind") == "table":
+            skip_reason = "front matter table before body"
+        elif block.get("type") == "figure":
+            skip_reason = "front matter figure before body"
+        elif text:
+            skip_reason = "cover/front matter text before body"
+        else:
+            skip_reason = "front matter blank before body"
+        skipped.append(
+            {
+                "index": block.get("index"),
+                "kind": block.get("kind"),
+                "type": block.get("type"),
+                "text": text,
+                "reason": skip_reason,
+            }
+        )
+
+    return {
+        "detected": body_start > 0,
+        "body_start_block": body_start,
+        "body_start_reason": reason,
+        "skipped_blocks_count": len(skipped),
+        "skipped_blocks": skipped,
+    }
+
+
+def infer_source_title(input_docx: Path, source_report: dict[str, Any], front_matter: dict[str, Any]) -> str | None:
+    """从源文档推断封面标题，优先使用旧封面中连续的标题行。"""
+    if not front_matter.get("detected"):
+        blocks = source_report.get("blocks", [])
+        if (
+            blocks
+            and str(blocks[0].get("type", "")).startswith("heading_")
+            and (
+                str(blocks[0].get("confidence", "")) == "high"
+                or "numbered heading" in str(blocks[0].get("reason", ""))
+                or "matched style" in str(blocks[0].get("reason", ""))
+            )
+        ):
+            return input_docx.stem
+        return first_nonblank_paragraph_text(input_docx)
+
+    skipped = front_matter.get("skipped_blocks", [])
+    best: list[str] = []
+    current: list[str] = []
+    for block in skipped:
+        text = str(block.get("text", "")).strip()
+        block_type = str(block.get("type", ""))
+        if (
+            not text
+            or block.get("kind") != "paragraph"
+            or block_type not in {"heading_1", "heading_2", "heading_3", "body"}
+            or _is_front_matter_title(text)
+            or "文件编号" in text
+            or "公司" in text
+            or re.search(r"\d{4}\s*年|\d{4}[-/.]\d{1,2}[-/.]\d{1,2}", text)
+        ):
+            if len("".join(current)) > len("".join(best)):
+                best = current
+            current = []
+            continue
+        current.append(text)
+    if len("".join(current)) > len("".join(best)):
+        best = current
+    if best:
+        return "".join(best)
+    return first_nonblank_paragraph_text(input_docx)
+
+
+def infer_source_file_number(source_report: dict[str, Any]) -> str | None:
+    """从源文档前部提取文件编号行。"""
+    for block in source_report.get("blocks", [])[:40]:
+        text = str(block.get("text", "")).strip()
+        if re.match(r"^文件编号\s*[:：]", text):
+            return text
+    return None
+
+
+def write_source_body_only_docx(input_docx: Path, output_docx: Path, body_start: int) -> None:
+    """复制源文档并删除正文开始前的前置块。"""
+    shutil.copy2(input_docx, output_docx)
+    if body_start <= 0:
+        return
+    doc = Document(str(output_docx))
+    blocks = iter_block_items(doc)
+    for block in blocks[:body_start]:
+        remove_block(block)
+    doc.save(str(output_docx))
+
+
 def replace_cover_title(doc: Document, title: str | None) -> None:
     """把母版封面标题替换为源文档标题。"""
     if not title:
@@ -305,6 +515,36 @@ def replace_cover_title(doc: Document, title: str | None) -> None:
             normalize_paragraph_to_style(paragraph, STYLE_MAIN_TITLE)
         elif text == "技术方案":
             paragraph.text = ""
+
+
+def replace_cover_file_number(doc: Document, file_number: str | None) -> None:
+    """把母版封面文件编号占位替换为源文档文件编号。"""
+    if not file_number:
+        return
+    for paragraph in doc.paragraphs:
+        text = paragraph.text.strip()
+        if text.startswith("文件编号：") or text.startswith("文件编号:"):
+            paragraph.text = file_number
+            normalize_paragraph_to_style(paragraph, STYLE_HEADING_5)
+            return
+
+
+def remove_template_front_matter_samples(doc: Document) -> None:
+    """删除母版目录、图录、表录中的示例缓存项，保留域本身等待 Word/WPS 更新。"""
+    sample_pattern = re.compile(r"^\s*\d+[-－—.．]\d+\s+(图注|表注)\d+\s*(\t+\d+)?\s*$")
+    for paragraph in list(doc.paragraphs):
+        text = paragraph.text.strip()
+        if not sample_pattern.match(text):
+            continue
+        if "TOC" in paragraph_field_xml(paragraph):
+            for text_node in paragraph._element.xpath(".//w:t"):
+                text_node.text = ""
+            for tab_node in list(paragraph._element.xpath(".//w:tab")):
+                parent = tab_node.getparent()
+                if parent is not None:
+                    parent.remove(tab_node)
+        else:
+            remove_block(paragraph)
 
 
 def set_default_headers(doc: Document, title: str | None) -> None:
@@ -364,6 +604,34 @@ def has_table_caption_field(paragraph: Paragraph) -> bool:
     return "SEQ 表" in paragraph_field_xml(paragraph)
 
 
+def is_plain_figure_caption_text(text: str) -> bool:
+    """判断图片后方短文本是否像未编号图题注。"""
+    stripped = text.strip()
+    if not stripped or len(stripped) > 40:
+        return False
+    if not stripped.endswith("图"):
+        return False
+    if stripped.startswith(("如", "上", "下", "本")):
+        return False
+    if any(mark in stripped for mark in "。；;，,：:"):
+        return False
+    return True
+
+
+def is_table_caption_paragraph(paragraph: Paragraph) -> bool:
+    """判断段落是否是表题注字段或可识别的表题注文本。"""
+    return has_table_caption_field(paragraph) or bool(
+        CAPTION_TEXT_PATTERNS["table_caption"].match(paragraph.text.strip())
+    )
+
+
+def is_figure_caption_paragraph(paragraph: Paragraph) -> bool:
+    """判断段落是否是图题注字段或可识别的图题注文本。"""
+    return has_figure_caption_field(paragraph) or bool(
+        CAPTION_TEXT_PATTERNS["figure_caption"].match(paragraph.text.strip())
+    )
+
+
 def add_figure_caption_after(
     paragraph: Paragraph,
     caption_text: str,
@@ -382,6 +650,50 @@ def add_figure_caption_after(
     normalize_paragraph_to_style(blank, STYLE_BODY)
 
 
+def set_figure_caption_paragraph(
+    paragraph: Paragraph,
+    caption_text: str,
+    chapter_no: int = 1,
+    figure_no: int = 1,
+) -> None:
+    """把图片后的未编号题注文本改为 KL 图题注字段。"""
+    paragraph.text = ""
+    normalize_paragraph_to_style(paragraph, STYLE_CAPTION)
+    paragraph.add_run("图 ")
+    append_field(paragraph.add_run(), r" STYLEREF KL一级标题 \n \* MERGEFORMAT ", str(chapter_no))
+    paragraph.add_run("-")
+    append_field(paragraph.add_run(), r" SEQ 图 \* ARABIC \s 1 ", str(figure_no))
+    paragraph.add_run(f" {caption_text}")
+
+
+def insert_paragraph_before(block: Paragraph | Table, style: str | None = None) -> Paragraph:
+    """在指定块前插入新段落。"""
+    new_p = OxmlElement("w:p")
+    block._element.addprevious(new_p)
+    paragraph = Paragraph(new_p, block._parent)
+    if style:
+        paragraph.style = style
+    return paragraph
+
+
+def add_table_caption_before(
+    table: Table,
+    caption_text: str,
+    chapter_no: int = 1,
+    table_no: int = 1,
+) -> None:
+    """在表格前插入 KL 表题注和必要空行。"""
+    caption = insert_paragraph_before(table, STYLE_CAPTION)
+    normalize_paragraph_to_style(caption, STYLE_CAPTION)
+    caption.add_run("表 ")
+    append_field(caption.add_run(), r" STYLEREF KL一级标题 \n \* MERGEFORMAT ", str(chapter_no))
+    caption.add_run("-")
+    append_field(caption.add_run(), r" SEQ 表 \* ARABIC \s 1 ", str(table_no))
+    caption.add_run(f" {caption_text}")
+    blank = insert_paragraph_before(caption, STYLE_BODY)
+    normalize_paragraph_to_style(blank, STYLE_BODY)
+
+
 def make_context_caption(
     heading_1: str | None,
     heading_2: str | None,
@@ -395,6 +707,19 @@ def make_context_caption(
             base = heading[:18]
             return base if base.endswith("图") else f"{base}图"
     return "示意图"
+
+
+def make_context_table_caption(
+    heading_1: str | None,
+    heading_2: str | None,
+    heading_3: str | None,
+) -> str:
+    """根据附近标题生成缺省表题注名称。"""
+    for heading in (heading_2, heading_1, heading_3):
+        if heading:
+            base = heading[:18]
+            return base if base.endswith("表") else f"{base}表"
+    return "数据表"
 
 
 def next_nonblank_block(blocks: list[Paragraph | Table], start: int) -> Paragraph | Table | None:
@@ -452,16 +777,57 @@ def apply_table_styles(table: Table) -> None:
                 )
 
 
+def _make_source_paragraph_lookup(
+    source_blocks: list[dict[str, Any]] | None,
+) -> dict[str, deque[dict[str, str]]]:
+    """把源文档段落文本映射到源分类，转换阶段优先消费该分类。"""
+    lookup: dict[str, deque[dict[str, str]]] = defaultdict(deque)
+    if not source_blocks:
+        return lookup
+    for block in source_blocks:
+        if block.get("kind") != "paragraph":
+            continue
+        block_type = str(block.get("type", ""))
+        text = str(block.get("text", "")).strip()
+        if not text or block_type in {"blank", "figure"}:
+            continue
+        item = {
+            "type": block_type,
+            "reason": str(block.get("reason", "")) or "matched source document classification",
+            "confidence": str(block.get("confidence", "")) or "high",
+        }
+        lookup[text].append(item)
+        cleaned = clean_heading_number(text)[0]
+        if cleaned and cleaned != text:
+            lookup[cleaned].append(item)
+    return lookup
+
+
+def _pop_source_paragraph(
+    lookup: dict[str, deque[dict[str, str]]],
+    text: str,
+    cleaned_text: str,
+) -> dict[str, str] | None:
+    """按正文顺序取出源文档中同名段落的原始分类。"""
+    for key in (text, cleaned_text):
+        queue = lookup.get(key)
+        if queue:
+            return queue.popleft()
+    return None
+
+
 def standardize_appended_body(
     doc: Document,
     start_idx: int,
     source_title: str | None = None,
+    source_blocks: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """规范化追加到母版后的正文块。"""
     blocks = iter_block_items(doc)
     report: dict[str, Any] = {
         "styled": [],
         "figure_captions_added": [],
+        "table_captions_added": [],
         "tables_styled": 0,
         "removed_duplicate_body_title": False,
         "number_prefixes_removed": [],
@@ -471,13 +837,37 @@ def standardize_appended_body(
     current_heading_2: str | None = None
     current_heading_3: str | None = None
     figure_no_by_chapter: dict[int, int] = {}
+    table_no_by_chapter: dict[int, int] = {}
     idx = start_idx
+    source_paragraph_lookup = _make_source_paragraph_lookup(source_blocks)
 
     while idx < len(blocks):
         block = blocks[idx]
         if isinstance(block, Table):
             apply_table_styles(block)
             report["tables_styled"] += 1
+            prev_block = previous_block(blocks, idx)
+            if not (isinstance(prev_block, Paragraph) and is_table_caption_paragraph(prev_block)):
+                chapter_no = max(current_chapter_no, 1)
+                table_no_by_chapter[chapter_no] = table_no_by_chapter.get(chapter_no, 0) + 1
+                table_no = table_no_by_chapter[chapter_no]
+                caption_text = make_context_table_caption(
+                    current_heading_1,
+                    current_heading_2,
+                    current_heading_3,
+                )
+                add_table_caption_before(block, caption_text, chapter_no, table_no)
+                report["table_captions_added"].append(
+                    {
+                        "before_block": idx,
+                        "chapter": chapter_no,
+                        "table": table_no,
+                        "caption": caption_text,
+                    }
+                )
+                blocks = iter_block_items(doc)
+                idx += 3
+                continue
             idx += 1
             continue
 
@@ -496,7 +886,24 @@ def standardize_appended_body(
         if paragraph_has_image(block):
             normalize_paragraph_to_style(block, STYLE_IMAGE)
             next_block = blocks[idx + 1] if idx + 1 < len(blocks) else None
-            if not (isinstance(next_block, Paragraph) and has_figure_caption_field(next_block)):
+            if isinstance(next_block, Paragraph) and is_plain_figure_caption_text(next_block.text):
+                chapter_no = max(current_chapter_no, 1)
+                figure_no_by_chapter[chapter_no] = figure_no_by_chapter.get(chapter_no, 0) + 1
+                figure_no = figure_no_by_chapter[chapter_no]
+                caption_text = next_block.text.strip()
+                set_figure_caption_paragraph(next_block, caption_text, chapter_no, figure_no)
+                _pop_source_paragraph(source_paragraph_lookup, caption_text, caption_text)
+                report["figure_captions_added"].append(
+                    {
+                        "after_block": idx,
+                        "chapter": chapter_no,
+                        "figure": figure_no,
+                        "caption": caption_text,
+                        "source": "following plain caption text",
+                    }
+                )
+                blocks = iter_block_items(doc)
+            elif not (isinstance(next_block, Paragraph) and has_figure_caption_field(next_block)):
                 chapter_no = max(current_chapter_no, 1)
                 figure_no_by_chapter[chapter_no] = figure_no_by_chapter.get(chapter_no, 0) + 1
                 figure_no = figure_no_by_chapter[chapter_no]
@@ -529,12 +936,28 @@ def standardize_appended_body(
             idx += 1
             continue
 
-        if has_figure_caption_field(block) or has_table_caption_field(block):
+        if is_figure_caption_paragraph(block) or is_table_caption_paragraph(block):
             normalize_paragraph_to_style(block, STYLE_CAPTION)
             idx += 1
             continue
 
-        kind, clean_text, reason, confidence = classify_heading(text, block)
+        source_paragraph = _pop_source_paragraph(source_paragraph_lookup, text, cleaned_text)
+        if source_paragraph:
+            source_type = source_paragraph["type"]
+            if source_type.startswith("heading_"):
+                kind = source_type
+                clean_text = clean_heading_number(text)[0]
+            elif source_type in {"figure_caption", "table_caption"}:
+                normalize_paragraph_to_style(block, STYLE_CAPTION)
+                idx += 1
+                continue
+            else:
+                kind = "body"
+                clean_text = text
+            reason = source_paragraph["reason"]
+            confidence = source_paragraph["confidence"]
+        else:
+            kind, clean_text, reason, confidence = classify_heading(text, block)
         following = next_nonblank_block(blocks, idx)
         if (
             kind == "heading_2"
@@ -548,11 +971,13 @@ def standardize_appended_body(
             confidence = "medium"
 
         if kind.startswith("heading_"):
+            clean_text = normalize_heading_text(clean_text)
             clear_numbering(block)
-            if clean_text != text:
+            if clean_text != block.text:
+                original_text = block.text
                 set_paragraph_text(block, clean_text)
                 report["number_prefixes_removed"].append(
-                    {"block": idx, "from": text, "to": clean_text}
+                    {"block": idx, "from": original_text, "to": clean_text}
                 )
 
         if kind == "heading_1":
@@ -596,6 +1021,8 @@ def build_standard_docx(
     input_docx: Path | str,
     output_docx: Path | str,
     template_docx: Path | str | None = None,
+    *,
+    skip_source_front_matter: bool = False,
 ) -> dict[str, Any]:
     """基于 KL 母版把正文文档转换为标准文档。"""
     input_path = Path(input_docx)
@@ -603,7 +1030,24 @@ def build_standard_docx(
     template_path = Path(template_docx) if template_docx is not None else DEFAULT_MASTER_TEMPLATE
     if not template_path.exists():
         raise FileNotFoundError(f"KL母版模板不存在: {template_path}")
-    source_title = first_nonblank_paragraph_text(input_path)
+    source_report = classify_docx_body(input_path)
+    detected_source_front_matter = detect_source_front_matter(source_report)
+    source_front_matter = (
+        detected_source_front_matter
+        if skip_source_front_matter
+        else {
+            "detected": False,
+            "body_start_block": 0,
+            "body_start_reason": "source is treated as body content from the first block",
+            "skipped_blocks_count": 0,
+            "skipped_blocks": [],
+            "auto_detected": detected_source_front_matter,
+        }
+    )
+    source_title = infer_source_title(input_path, source_report, source_front_matter)
+    source_file_number = infer_source_file_number(source_report)
+    source_body_start = int(source_front_matter["body_start_block"])
+    source_blocks = source_report["blocks"][source_body_start:]
     has_figures = document_has_figures(input_path)
     has_tables = document_has_tables(input_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -615,21 +1059,26 @@ def build_standard_docx(
 
         front_doc = Document(str(front_docx))
         replace_cover_title(front_doc, source_title)
+        replace_cover_file_number(front_doc, source_file_number)
+        remove_template_front_matter_samples(front_doc)
         set_default_headers(front_doc, source_title)
         front_matter = {"template_front_matter_preserved": True}
         front_count = remove_template_sample_body(front_doc)
         front_doc.add_paragraph().add_run().add_break(WD_BREAK.PAGE)
         front_doc.save(str(front_docx))
 
+        source_body_docx = tmp_dir / "source_body.docx"
+        write_source_body_only_docx(input_path, source_body_docx, source_body_start)
+
         master = Document(str(front_docx))
         composer = Composer(master)
-        composer.append(Document(str(input_path)))
+        composer.append(Document(str(source_body_docx)))
         composed_docx = tmp_dir / "composed.docx"
         composer.save(str(composed_docx))
 
         doc = Document(str(composed_docx))
         set_default_headers(doc, source_title)
-        report = standardize_appended_body(doc, front_count + 1, source_title)
+        report = standardize_appended_body(doc, front_count + 1, source_title, source_blocks)
         doc.save(str(output_path))
 
     report.update(
@@ -638,10 +1087,13 @@ def build_standard_docx(
             "output": str(output_path),
             "template": str(template_path),
             "source_title": source_title,
+            "source_file_number": source_file_number,
             "input_has_figures": has_figures,
             "input_has_tables": has_tables,
             "front_matter": front_matter,
             "front_blocks_preserved": front_count,
+            "source_front_matter": source_front_matter,
+            "skip_source_front_matter": skip_source_front_matter,
         }
     )
     return report
@@ -721,6 +1173,8 @@ def _classify_paragraph_xml(p: ET.Element, style_names: dict[str, str]) -> tuple
     for level in range(1, 7):
         if normalized_style in {f"heading{level}", f"标题{level}", str(level)}:
             return f"heading_{level}", f"matched style {style_value}", "high"
+    if normalized_style == "listparagraph":
+        return "body", "list paragraph is body, not standalone heading", "high"
     kind, _cleaned, reason, confidence = classify_heading(text)
     return (
         kind if text else "blank",
@@ -929,6 +1383,7 @@ __all__ = [
     "normalize_table_cell_paragraph",
     "apply_table_styles",
     "add_figure_caption_after",
+    "detect_source_front_matter",
     "classify_docx_body",
     "write_classification_report",
     "check_word_standard",
