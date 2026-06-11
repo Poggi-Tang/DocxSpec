@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "docxspec"
-version = "0.0.7"
+version = "0.0.8"
 description = "Lightweight Word report generation library based on python-docx"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -31,6 +31,9 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+word = [
+  "pywin32>=306; platform_system == 'Windows'"
+]
 dev = [
   "build>=1.2.2",
   "pytest>=8.0",
@@ -43,8 +46,8 @@ dev = [
 Homepage = "https://github.com/Poggi-Tang/docxspec"
 Repository = "https://github.com/Poggi-Tang/docxspec"
 Issues = "https://github.com/Poggi-Tang/docxspec/issues"
-Changelog = "https://github.com/Poggi-Tang/docxspec/blob/master/CHANGELOG.md"
-Documentation = "https://github.com/Poggi-Tang/docxspec/blob/master/README.md"
+Changelog = "https://github.com/Poggi-Tang/docxspec/blob/main/CHANGELOG.md"
+Documentation = "https://github.com/Poggi-Tang/docxspec/blob/main/README.md"
 
 [tool.setuptools]
 package-dir = {"" = "src"}
@@ -81,7 +84,7 @@ show_missing = true
 skip_covered = false
 
 [tool.semantic_release]
-branch = "master"
+branch = "main"
 version_toml = ["pyproject.toml:project.version"]
 version_variables = ["src/docxspec/__init__.py:__version__"]
 changelog_file = "CHANGELOG.md"

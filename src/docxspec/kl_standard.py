@@ -604,6 +604,27 @@ def has_table_caption_field(paragraph: Paragraph) -> bool:
     return "SEQ 表" in paragraph_field_xml(paragraph)
 
 
+def has_standard_caption_fields(paragraph: Paragraph, seq_name: str) -> bool:
+    """判断题注是否同时包含公司标准章节域和指定 SEQ 域。"""
+    fields = paragraph_field_xml(paragraph)
+    return "STYLEREF KL一级标题" in fields and f"SEQ {seq_name}" in fields
+
+
+def extract_caption_title(paragraph: Paragraph, label: str) -> str:
+    """从已有题注文本中提取题名，去掉图/表编号部分。"""
+    text = paragraph.text.strip()
+    text = re.sub(r"\s+", " ", text)
+    # 兼容“表 5-1 标题”“图 3.2 标题”“表 1 标题”等缓存文本。
+    title = re.sub(
+        rf"^\s*{label}\s*[\d一二三四五六七八九十]+(?:\s*[-－—.．]\s*\d+)?\s*",
+        "",
+        text,
+    ).strip()
+    if title == text and title.startswith(label):
+        title = title[len(label):].strip(" -－—.．\t")
+    return title
+
+
 def is_plain_figure_caption_text(text: str) -> bool:
     """判断图片后方短文本是否像未编号图题注。"""
     stripped = text.strip()
@@ -663,6 +684,22 @@ def set_figure_caption_paragraph(
     append_field(paragraph.add_run(), r" STYLEREF KL一级标题 \n \* MERGEFORMAT ", str(chapter_no))
     paragraph.add_run("-")
     append_field(paragraph.add_run(), r" SEQ 图 \* ARABIC \s 1 ", str(figure_no))
+    paragraph.add_run(f" {caption_text}")
+
+
+def set_table_caption_paragraph(
+    paragraph: Paragraph,
+    caption_text: str,
+    chapter_no: int = 1,
+    table_no: int = 1,
+) -> None:
+    """把已有表题注文本或非标准字段改为 KL 标准表题注字段。"""
+    paragraph.text = ""
+    normalize_paragraph_to_style(paragraph, STYLE_CAPTION)
+    paragraph.add_run("表 ")
+    append_field(paragraph.add_run(), r" STYLEREF KL一级标题 \n \* MERGEFORMAT ", str(chapter_no))
+    paragraph.add_run("-")
+    append_field(paragraph.add_run(), r" SEQ 表 \* ARABIC \s 1 ", str(table_no))
     paragraph.add_run(f" {caption_text}")
 
 
@@ -752,11 +789,29 @@ def should_keep_blank(blocks: list[Paragraph | Table], idx: int) -> bool:
     return False
 
 
-def ensure_blank_before_paragraph(paragraph: Paragraph) -> None:
-    """确保一级标题前有一个 KL 正文样式空段落。"""
+def is_heading_paragraph(paragraph: Paragraph) -> bool:
+    """判断段落是否为标题样式。"""
+    name = style_name(paragraph)
+    normalized = name.replace(" ", "").lower()
+    if name in {
+        STYLE_HEADING_1,
+        STYLE_HEADING_2,
+        STYLE_HEADING_3,
+        STYLE_HEADING_4,
+        STYLE_HEADING_5,
+        STYLE_HEADING_6,
+    }:
+        return True
+    return any(normalized == f"heading{level}" or normalized == f"标题{level}" for level in range(1, 7))
+
+
+def ensure_blank_before_heading(paragraph: Paragraph) -> None:
+    """当前一块不是标题时，确保标题前有一个 KL 正文空段落。"""
     prev = paragraph._element.getprevious()
     if prev is not None and prev.tag == qn("w:p"):
         prev_para = Paragraph(prev, paragraph._parent)
+        if is_heading_paragraph(prev_para):
+            return
         if not prev_para.text.strip() and not paragraph_has_image(prev_para):
             normalize_paragraph_to_style(prev_para, STYLE_BODY)
             return
@@ -828,6 +883,7 @@ def standardize_appended_body(
         "styled": [],
         "figure_captions_added": [],
         "table_captions_added": [],
+        "captions_standardized": [],
         "tables_styled": 0,
         "removed_duplicate_body_title": False,
         "number_prefixes_removed": [],
@@ -903,6 +959,8 @@ def standardize_appended_body(
                     }
                 )
                 blocks = iter_block_items(doc)
+                idx += 2
+                continue
             elif not (isinstance(next_block, Paragraph) and has_figure_caption_field(next_block)):
                 chapter_no = max(current_chapter_no, 1)
                 figure_no_by_chapter[chapter_no] = figure_no_by_chapter.get(chapter_no, 0) + 1
@@ -923,6 +981,8 @@ def standardize_appended_body(
                     }
                 )
                 blocks = iter_block_items(doc)
+                idx += 3
+                continue
             idx += 1
             continue
 
@@ -936,8 +996,52 @@ def standardize_appended_body(
             idx += 1
             continue
 
-        if is_figure_caption_paragraph(block) or is_table_caption_paragraph(block):
-            normalize_paragraph_to_style(block, STYLE_CAPTION)
+        if is_figure_caption_paragraph(block):
+            chapter_no = max(current_chapter_no, 1)
+            figure_no_by_chapter[chapter_no] = figure_no_by_chapter.get(chapter_no, 0) + 1
+            figure_no = figure_no_by_chapter[chapter_no]
+            caption_text = extract_caption_title(block, "图") or make_context_caption(
+                current_heading_1,
+                current_heading_2,
+                current_heading_3,
+                figure_no,
+            )
+            was_standard = has_standard_caption_fields(block, "图")
+            set_figure_caption_paragraph(block, caption_text, chapter_no, figure_no)
+            report["captions_standardized"].append(
+                {
+                    "block": idx,
+                    "kind": "figure",
+                    "caption": caption_text,
+                    "chapter": chapter_no,
+                    "number": figure_no,
+                    "was_standard": was_standard,
+                }
+            )
+            idx += 1
+            continue
+
+        if is_table_caption_paragraph(block):
+            chapter_no = max(current_chapter_no, 1)
+            table_no_by_chapter[chapter_no] = table_no_by_chapter.get(chapter_no, 0) + 1
+            table_no = table_no_by_chapter[chapter_no]
+            caption_text = extract_caption_title(block, "表") or make_context_table_caption(
+                current_heading_1,
+                current_heading_2,
+                current_heading_3,
+            )
+            was_standard = has_standard_caption_fields(block, "表")
+            set_table_caption_paragraph(block, caption_text, chapter_no, table_no)
+            report["captions_standardized"].append(
+                {
+                    "block": idx,
+                    "kind": "table",
+                    "caption": caption_text,
+                    "chapter": chapter_no,
+                    "number": table_no,
+                    "was_standard": was_standard,
+                }
+            )
             idx += 1
             continue
 
@@ -981,24 +1085,29 @@ def standardize_appended_body(
                 )
 
         if kind == "heading_1":
-            ensure_blank_before_paragraph(block)
+            ensure_blank_before_heading(block)
             current_chapter_no += 1
             current_heading_1 = clean_text
             current_heading_2 = None
             current_heading_3 = None
             normalize_paragraph_to_style(block, STYLE_HEADING_1)
         elif kind == "heading_2":
+            ensure_blank_before_heading(block)
             current_heading_2 = clean_text
             current_heading_3 = None
             normalize_paragraph_to_style(block, STYLE_HEADING_2)
         elif kind == "heading_3":
+            ensure_blank_before_heading(block)
             current_heading_3 = clean_text
             normalize_paragraph_to_style(block, STYLE_HEADING_3)
         elif kind == "heading_4":
+            ensure_blank_before_heading(block)
             normalize_paragraph_to_style(block, STYLE_HEADING_4)
         elif kind == "heading_5":
+            ensure_blank_before_heading(block)
             normalize_paragraph_to_style(block, STYLE_HEADING_5)
         elif kind == "heading_6":
+            ensure_blank_before_heading(block)
             normalize_paragraph_to_style(block, STYLE_HEADING_6)
         else:
             normalize_paragraph_to_style(block, STYLE_BODY)

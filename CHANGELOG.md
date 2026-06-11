@@ -6,6 +6,22 @@ The format is based on *Keep a Changelog*, and this project adheres to *Semantic
 
 ---
 
+## [0.0.8] - 2026-06-11
+
+### Added
+
+* Added Word field refresh helpers:
+  * mark generated documents to refresh fields when opened
+  * normalize table list fields to the standard `TOC \h \z \c "表"` form
+  * optionally refresh fields immediately through Microsoft Word COM on Windows
+* Added tests for field refresh metadata and table list field normalization.
+
+### Changed
+
+* Extended KL standardization support for heading spacing and standard caption fields.
+
+---
+
 ## [0.0.3] - 2026-04-22
 
 ### Added

@@ -22,6 +22,8 @@
 * 富文本样式辅助工具
 * 图/表题注自动编号
 * 页码字段支持（`PAGE` / `NUMPAGES`）
+* Word 域刷新辅助能力（目录、图目录、表目录、题注）
+* KL 标准文档识别、校验与组装
 * 完整的 PyPI 打包与 CI/CD 流程
 
 ---
@@ -121,6 +123,27 @@ api.render(
 
 仓库中的 `Demo/template.docx` 提供了一个可运行示例
 （注意：Demo 模板不会被打包到发布的 wheel 中）
+
+---
+
+## Word 域刷新
+
+`docxspec` 可以给生成后的 `.docx` 写入打开自动刷新标记，使 Word/WPS 在打开文档时刷新目录、图目录、表目录和题注等域。若运行环境为 Windows，且已安装 Microsoft Word 和 `pywin32`，也可以通过 Word COM 立即刷新域。
+
+```python id="field-refresh"
+from docxspec import refresh_docx_fields
+
+result = refresh_docx_fields("report.docx", use_word=True)
+print(result.word_refreshed, result.error)
+```
+
+需要立即调用 Word COM 刷新时安装可选依赖：
+
+```bash id="install-word-extra"
+pip install "docxspec[word]"
+```
+
+未安装 Microsoft Word 或 `pywin32` 时，`refresh_docx_fields()` 仍会写入 `updateFields` 标记，文档打开后可由 Word/WPS 刷新域。
 
 ---
 

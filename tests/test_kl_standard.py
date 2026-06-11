@@ -177,6 +177,25 @@ def test_short_plain_text_without_heading_style_or_number_is_body(tmp_path: Path
     assert output_by_text["Powerfactory 2026软件"] == "body"
 
 
+def test_blank_line_is_inserted_before_headings_after_body_only(tmp_path: Path) -> None:
+    docx = tmp_path / "heading_spacing.docx"
+    output = tmp_path / "heading_spacing_standard.docx"
+    doc = Document()
+    doc.add_paragraph("1 一级标题")
+    doc.add_paragraph("正文段落")
+    doc.add_paragraph("1.1 二级标题")
+    doc.add_paragraph("1.1.1 三级标题")
+    doc.save(docx)
+
+    build_standard_docx(docx, output)
+    paragraphs = [paragraph.text.strip() for paragraph in Document(str(output)).paragraphs]
+    h2_index = paragraphs.index("二级标题")
+    h3_index = paragraphs.index("三级标题")
+
+    assert paragraphs[h2_index - 1] == ""
+    assert paragraphs[h3_index - 1] == "二级标题"
+
+
 def test_check_word_standard_uses_template_styles() -> None:
     template = Path(__file__).parent / "templates" / "template.docx"
 
@@ -222,6 +241,32 @@ def test_build_standard_docx_from_body_document(tmp_path: Path) -> None:
     standard_report = check_word_standard(output)
     assert standard_report["required_styles_ok"] is True
     assert standard_report["has_table_seq"] is True
+
+
+def test_existing_caption_text_is_rebuilt_with_standard_fields(tmp_path: Path) -> None:
+    body = tmp_path / "caption_body.docx"
+    output = tmp_path / "caption_standard.docx"
+
+    doc = Document()
+    doc.add_paragraph("1 需求背景")
+    doc.add_paragraph("表 9-8 非标准表题注")
+    table = doc.add_table(rows=2, cols=2)
+    table.cell(0, 0).text = "字段"
+    table.cell(0, 1).text = "值"
+    table.cell(1, 0).text = "名称"
+    table.cell(1, 1).text = "积分元件"
+    doc.save(body)
+
+    report = build_standard_docx(body, output)
+    result = Document(str(output))
+    caption = next(paragraph for paragraph in result.paragraphs if "非标准表题注" in paragraph.text)
+    xml = caption._p.xml
+
+    assert report["captions_standardized"]
+    assert "STYLEREF KL一级标题" in xml
+    assert r"SEQ 表 \* ARABIC \s 1" in xml
+    assert "非标准表题注" in caption.text
+    assert len([paragraph for paragraph in result.paragraphs if "非标准表题注" in paragraph.text]) == 1
 
 
 def test_build_standard_docx_uses_packaged_template_by_default(tmp_path: Path) -> None:

@@ -10,6 +10,13 @@ from .kl_standard import (
     detect_source_front_matter,
 )
 from .word_api import BlockTemplate, DocContainer, WordAPI
+from .word_fields import (
+    FieldRefreshResult,
+    mark_update_fields_on_open,
+    normalize_table_list_fields,
+    refresh_docx_fields,
+    refresh_fields_with_word,
+)
 from .word_styles import (
     BODY_STYLE,
     CAPTION_STYLE,
@@ -23,12 +30,13 @@ from .word_styles import (
     make_table_style,
 )
 
-__version__ = "0.0.7"
+__version__ = "0.0.8"
 
 __all__ = [
     "WordAPI",
     "BlockTemplate",
     "DocContainer",
+    "FieldRefreshResult",
     "DEFAULT_MASTER_TEMPLATE",
     "check_word_standard",
     "classify_docx_body",
@@ -36,6 +44,10 @@ __all__ = [
     "clean_heading_number",
     "classify_heading",
     "detect_source_front_matter",
+    "mark_update_fields_on_open",
+    "normalize_table_list_fields",
+    "refresh_docx_fields",
+    "refresh_fields_with_word",
     "TextStyle",
     "CellStyle",
     "TableStyle",

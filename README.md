@@ -20,6 +20,7 @@ It provides a small, template-driven API for generating `.docx` reports from use
 * Rich text style helpers
 * Automatic figure and table caption numbering
 * Page field helpers such as `PAGE` and `NUMPAGES`
+* Word field refresh helpers for TOC, figure lists, table lists, and captions
 * KL-standard document classification, validation, and standard document assembly
 * PyPI-ready packaging and CI/CD workflows
 
@@ -124,6 +125,28 @@ check_result = check_word_standard("standard.docx")
 These APIs reuse the KL styles and field-code rules from the master template. They are intended
 for document standardization and validation, while `WordAPI` remains the primary API for
 template-driven report generation.
+
+## Refreshing Word Fields
+
+`docxspec` can mark a generated `.docx` so Word/WPS refreshes fields when the document is
+opened. On Windows with Microsoft Word installed, it can also refresh fields immediately
+through Word COM automation.
+
+```python
+from docxspec import refresh_docx_fields
+
+result = refresh_docx_fields("report.docx", use_word=True)
+print(result.word_refreshed, result.error)
+```
+
+Install the optional Word automation dependency when immediate COM refresh is needed:
+
+```bash
+pip install "docxspec[word]"
+```
+
+Without Microsoft Word or `pywin32`, `refresh_docx_fields()` still writes the
+`updateFields` flag so the fields can update when the file is opened.
 
 ## Demo Directory
 
