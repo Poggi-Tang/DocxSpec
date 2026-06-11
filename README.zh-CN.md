@@ -85,6 +85,27 @@ api.render(
 )
 ```
 
+表格单元格支持文字和图片混排，图片块可以单独设置尺寸：
+
+```python id="mixed-cell"
+table_container.add_table(
+    [
+        ["字段", "内容"],
+        [
+            "测试方法",
+            [
+                "1. 搭建测试模型拓扑\n",
+                {"image": "topology.png", "width_cm": 6.0},
+                "\n2. 运行仿真并记录输出数据",
+            ],
+        ],
+    ]
+)
+```
+
+如果使用 JSON 式配置，也可以写成 `{"type": "mixed", "parts": [...]}`，
+图片块可写成 `{"type": "image", "path": "...", "width_cm": 3.0}`。
+
 ---
 
 ## 工作原理
@@ -165,6 +186,9 @@ pip install "docxspec[word]"
 * `Demo/demo6_header_footer.py`
 * `Demo/demo7_styles_in_container.py`
 * `Demo/demo8_all_in_one.py`
+* `Demo/demo9_block_template.py`
+* `Demo/demo10_kl_standard.py`
+* `Demo/demo11_table_mixed_cell.py`
 
 运行示例：
 

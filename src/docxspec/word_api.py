@@ -740,6 +740,138 @@ class WordAPI:
         with Image.open(path_str) as image:
             return image.size
 
+    @staticmethod
+    def _path_to_str(value: Any) -> str:
+        return str(value)
+
+    def _is_existing_image_path(self, value: Any) -> bool:
+        if not isinstance(value, (str, os.PathLike)):
+            return False
+        path_str = self._path_to_str(value)
+        return os.path.exists(path_str) and self._is_image_file(path_str)
+
+    @staticmethod
+    def _image_path_from_part(part: Any) -> str | None:
+        if not isinstance(part, dict):
+            return None
+        image_path = part.get("image") or part.get("path")
+        if not image_path:
+            return None
+        if part.get("type") not in (None, "image"):
+            return None
+        return str(image_path)
+
+    @staticmethod
+    def _text_from_part(part: Any) -> Any:
+        if not isinstance(part, dict):
+            return part
+        if part.get("type") not in (None, "text"):
+            return None
+        if "text" in part:
+            return part.get("text")
+        if "value" in part:
+            return part.get("value")
+        return None
+
+    def _cell_parts_from_value(self, value: Any) -> list[Any] | None:
+        if isinstance(value, list):
+            return value
+        if isinstance(value, dict) and value.get("type") == "mixed":
+            parts = value.get("parts", [])
+            if not isinstance(parts, list):
+                raise TypeError("混排单元格的 parts 必须是列表")
+            return parts
+        return None
+
+    def _add_picture_run(
+        self,
+        paragraph: Any,
+        image_path: str,
+        table_style: TableStyle,
+        width_cm: float | None = None,
+        height_cm: float | None = None,
+    ) -> Any:
+        if not os.path.exists(image_path):
+            raise FileNotFoundError(f"图片不存在: {image_path}")
+        if not self._is_image_file(image_path):
+            raise ValueError(f"不是支持的图片文件: {image_path}")
+
+        run = paragraph.add_run()
+        if width_cm is not None and height_cm is not None:
+            run.add_picture(image_path, width=Cm(float(width_cm)), height=Cm(float(height_cm)))
+        elif width_cm is not None:
+            run.add_picture(image_path, width=Cm(float(width_cm)))
+        elif height_cm is not None:
+            run.add_picture(image_path, height=Cm(float(height_cm)))
+        elif table_style.auto_fit_image:
+            image_width_px, image_height_px = self._safe_image_size(image_path)
+            effective_width_cm = table_style.image_width_cm
+            effective_height_cm = (
+                effective_width_cm * image_height_px / image_width_px
+                if image_width_px
+                else effective_width_cm
+            )
+            run.add_picture(
+                image_path,
+                width=Cm(effective_width_cm),
+                height=Cm(effective_height_cm),
+            )
+        else:
+            run.add_picture(image_path, width=Cm(table_style.image_width_cm))
+        return run
+
+    def _add_cell_text_part(
+        self,
+        paragraph: Any,
+        value: Any,
+        style: Optional[CellStyle],
+    ) -> Any:
+        text = "" if value is None else str(value)
+        run = paragraph.add_run(text)
+        if style is not None:
+            self._set_run_font(
+                run,
+                font_name=style.font_name,
+                font_size=style.font_size,
+                bold=style.bold,
+                italic=style.italic,
+                font_color=style.font_color,
+            )
+        return run
+
+    def _add_cell_part(
+        self,
+        paragraph: Any,
+        part: Any,
+        style: Optional[CellStyle],
+        table_style: TableStyle,
+    ) -> None:
+        image_path = self._image_path_from_part(part)
+        if image_path is not None:
+            self._add_picture_run(
+                paragraph,
+                image_path,
+                table_style,
+                width_cm=part.get("width_cm"),
+                height_cm=part.get("height_cm"),
+            )
+            return
+
+        if self._is_existing_image_path(part):
+            self._add_picture_run(paragraph, self._path_to_str(part), table_style)
+            return
+
+        nested_parts = self._cell_parts_from_value(part)
+        if nested_parts is not None:
+            for nested_part in nested_parts:
+                self._add_cell_part(paragraph, nested_part, style, table_style)
+            return
+
+        text_value = self._text_from_part(part)
+        if text_value is None and isinstance(part, dict):
+            text_value = part
+        self._add_cell_text_part(paragraph, text_value, style)
+
     def add_empty_paragraph(
         self,
         container: Any,
@@ -836,39 +968,37 @@ class WordAPI:
     def _fill_cell_value(
         self,
         cell: Any,
-        value: TextValue,
+        value: Any,
         style: Optional[CellStyle],
         table_style: TableStyle,
     ) -> None:
         self._apply_cell_style(cell, style)
         paragraph = cell.paragraphs[0]
 
-        if isinstance(value, str) and os.path.exists(value) and self._is_image_file(value):
-            run = paragraph.add_run()
-            if table_style.auto_fit_image:
-                image_width_px, image_height_px = self._safe_image_size(value)
-                width_cm = table_style.image_width_cm
-                height_cm = (
-                    width_cm * image_height_px / image_width_px
-                    if image_width_px
-                    else width_cm
-                )
-                run.add_picture(value, width=Cm(width_cm), height=Cm(height_cm))
-            else:
-                run.add_picture(value, width=Cm(table_style.image_width_cm))
+        if self._is_existing_image_path(value):
+            self._add_picture_run(paragraph, self._path_to_str(value), table_style)
             paragraph.alignment = WD_PARAGRAPH_ALIGNMENT.CENTER
             return
 
-        run = paragraph.add_run("" if value is None else str(value))
-        if style is not None:
-            self._set_run_font(
-                run,
-                font_name=style.font_name,
-                font_size=style.font_size,
-                bold=style.bold,
-                italic=style.italic,
-                font_color=style.font_color,
+        image_path = self._image_path_from_part(value)
+        if image_path is not None:
+            self._add_picture_run(
+                paragraph,
+                image_path,
+                table_style,
+                width_cm=value.get("width_cm"),
+                height_cm=value.get("height_cm"),
             )
+            paragraph.alignment = WD_PARAGRAPH_ALIGNMENT.CENTER
+            return
+
+        parts = self._cell_parts_from_value(value)
+        if parts is not None:
+            for part in parts:
+                self._add_cell_part(paragraph, part, style, table_style)
+            return
+
+        self._add_cell_text_part(paragraph, self._text_from_part(value), style)
 
     def _set_table_borders(
         self,
@@ -1017,22 +1147,36 @@ class WordAPI:
             table_style=table_style,
         )
 
-    def _normalize_table_data(self, data: list[list[Any]]) -> list[list[str]]:
+    def _normalize_table_data(self, data: list[list[Any]]) -> list[list[Any]]:
         if not data:
             return []
 
         col_count = max(len(row) for row in data)
         normalized = []
         for row in data:
-            new_row = ["" if cell is None else str(cell) for cell in row]
+            new_row = ["" if cell is None else cell for cell in row]
             if len(new_row) < col_count:
                 new_row.extend([""] * (col_count - len(new_row)))
             normalized.append(new_row)
         return normalized
 
+    def _cell_display_text(self, value: Any) -> str:
+        image_path = self._image_path_from_part(value)
+        if image_path is not None or self._is_existing_image_path(value):
+            return ""
+
+        parts = self._cell_parts_from_value(value)
+        if parts is not None:
+            return "".join(self._cell_display_text(part) for part in parts)
+
+        text_value = self._text_from_part(value)
+        if text_value is None and isinstance(value, dict):
+            text_value = value
+        return "" if text_value is None else str(text_value)
+
     def _build_col_widths(
         self,
-        data: list[list[str]],
+        data: list[list[Any]],
         input_col_widths: list[float],
         max_table_width_cm: float = 14.0,
         default_col_width_cm: float = 4.0,
@@ -1047,7 +1191,7 @@ class WordAPI:
         for col_idx in range(col_count):
             max_len = 1
             for row in data:
-                cell_text = row[col_idx] if col_idx < len(row) else ""
+                cell_text = self._cell_display_text(row[col_idx] if col_idx < len(row) else "")
                 text_len = self._get_display_length(cell_text)
                 max_len = max(max_len, text_len)
             col_weights.append(max_len)

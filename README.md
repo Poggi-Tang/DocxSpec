@@ -79,6 +79,27 @@ api.render(
 )
 ```
 
+Table cells can also contain mixed text and images. Image parts support explicit sizing:
+
+```python
+table_container.add_table(
+    [
+        ["Field", "Content"],
+        [
+            "Test method",
+            [
+                "1. Build test topology\n",
+                {"image": "topology.png", "width_cm": 6.0},
+                "\n2. Run simulation and record output",
+            ],
+        ],
+    ]
+)
+```
+
+For JSON-like configurations, use `{"type": "mixed", "parts": [...]}` and
+`{"type": "image", "path": "...", "width_cm": 3.0}` when a more explicit schema is preferred.
+
 ## How It Works
 
 `docxspec` uses two main ideas:
@@ -168,6 +189,7 @@ Example scripts:
 * `Demo/demo8_all_in_one.py`
 * `Demo/demo9_block_template.py`
 * `Demo/demo10_kl_standard.py`
+* `Demo/demo11_table_mixed_cell.py`
 
 Run them from the repository root, for example:
 

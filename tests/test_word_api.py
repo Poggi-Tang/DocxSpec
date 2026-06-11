@@ -452,6 +452,54 @@ class TestWordAPIAllInOne:
         cell_xml = table.cell(1, 0)._tc.xml
         assert "graphicData" in cell_xml or "pic:pic" in cell_xml
 
+    def test_insert_table_with_mixed_text_and_image_cell(self, template_path, test_image):
+        api = WordAPI(template_path)
+        container = api.new_container()
+        data = [
+            ["说明"],
+            [["前置描述", {"image": test_image, "width_cm": 2.0}, "后置描述"]],
+        ]
+
+        table = api.insert_table(container.subdoc, data)
+        cell = table.cell(1, 0)
+        cell_xml = cell._tc.xml
+
+        assert "前置描述" in cell.text
+        assert "后置描述" in cell.text
+        assert "graphicData" in cell_xml or "pic:pic" in cell_xml
+        assert 'cx="720000"' in cell_xml
+
+    def test_insert_table_with_mixed_cell_config(self, template_path, test_image):
+        api = WordAPI(template_path)
+        container = api.new_container()
+        config = {
+            "data": [
+                ["说明"],
+                [
+                    {
+                        "type": "mixed",
+                        "parts": [
+                            {"text": "描述"},
+                            {
+                                "type": "image",
+                                "path": test_image,
+                                "width_cm": 1.5,
+                            },
+                            {"type": "text", "text": "描述"},
+                        ],
+                    }
+                ],
+            ]
+        }
+
+        table = api.insert_table_by_config(container.subdoc, config)
+        cell = table.cell(1, 0)
+        cell_xml = cell._tc.xml
+
+        assert cell.text.count("描述") == 2
+        assert "graphicData" in cell_xml or "pic:pic" in cell_xml
+        assert 'cx="540000"' in cell_xml
+
     # =========================
     # 6. 配置表格能力
     # =========================

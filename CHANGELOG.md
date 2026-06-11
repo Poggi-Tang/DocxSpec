@@ -6,6 +6,22 @@ The format is based on *Keep a Changelog*, and this project adheres to *Semantic
 
 ---
 
+## [0.0.9] - 2026-06-11
+
+### Added
+
+* Added mixed table cell content support:
+  * text and images can be inserted into the same table cell in order
+  * image parts support `width_cm` and `height_cm`
+  * both compact `{"image": "..."}` and explicit `{"type": "mixed", "parts": [...]}` schemas are supported
+* Added a demo for inserting a controlled-size image into a test-method table cell.
+
+### Changed
+
+* `insert_table_by_config()` now preserves structured cell values instead of converting every cell to text before rendering.
+
+---
+
 ## [0.0.8] - 2026-06-11
 
 ### Added
