@@ -610,6 +610,13 @@ def has_standard_caption_fields(paragraph: Paragraph, seq_name: str) -> bool:
     return "STYLEREF KL一级标题" in fields and f"SEQ {seq_name}" in fields
 
 
+def _caption_sequence_field_code(seq_name: str, sequence_no: int) -> str:
+    """生成可在自定义一级标题下可靠按章重置的 SEQ 域代码。"""
+    if sequence_no == 1:
+        return rf" SEQ {seq_name} \* ARABIC \r 1 "
+    return rf" SEQ {seq_name} \* ARABIC "
+
+
 def extract_caption_title(paragraph: Paragraph, label: str) -> str:
     """从已有题注文本中提取题名，去掉图/表编号部分。"""
     text = paragraph.text.strip()
@@ -665,7 +672,11 @@ def add_figure_caption_after(
     caption.add_run("图 ")
     append_field(caption.add_run(), r" STYLEREF KL一级标题 \n \* MERGEFORMAT ", str(chapter_no))
     caption.add_run("-")
-    append_field(caption.add_run(), r" SEQ 图 \* ARABIC \s 1 ", str(figure_no))
+    append_field(
+        caption.add_run(),
+        _caption_sequence_field_code("图", figure_no),
+        str(figure_no),
+    )
     caption.add_run(f" {caption_text}")
     blank = insert_paragraph_after(caption, STYLE_BODY)
     normalize_paragraph_to_style(blank, STYLE_BODY)
@@ -683,7 +694,11 @@ def set_figure_caption_paragraph(
     paragraph.add_run("图 ")
     append_field(paragraph.add_run(), r" STYLEREF KL一级标题 \n \* MERGEFORMAT ", str(chapter_no))
     paragraph.add_run("-")
-    append_field(paragraph.add_run(), r" SEQ 图 \* ARABIC \s 1 ", str(figure_no))
+    append_field(
+        paragraph.add_run(),
+        _caption_sequence_field_code("图", figure_no),
+        str(figure_no),
+    )
     paragraph.add_run(f" {caption_text}")
 
 
@@ -699,7 +714,11 @@ def set_table_caption_paragraph(
     paragraph.add_run("表 ")
     append_field(paragraph.add_run(), r" STYLEREF KL一级标题 \n \* MERGEFORMAT ", str(chapter_no))
     paragraph.add_run("-")
-    append_field(paragraph.add_run(), r" SEQ 表 \* ARABIC \s 1 ", str(table_no))
+    append_field(
+        paragraph.add_run(),
+        _caption_sequence_field_code("表", table_no),
+        str(table_no),
+    )
     paragraph.add_run(f" {caption_text}")
 
 
@@ -725,7 +744,11 @@ def add_table_caption_before(
     caption.add_run("表 ")
     append_field(caption.add_run(), r" STYLEREF KL一级标题 \n \* MERGEFORMAT ", str(chapter_no))
     caption.add_run("-")
-    append_field(caption.add_run(), r" SEQ 表 \* ARABIC \s 1 ", str(table_no))
+    append_field(
+        caption.add_run(),
+        _caption_sequence_field_code("表", table_no),
+        str(table_no),
+    )
     caption.add_run(f" {caption_text}")
     blank = insert_paragraph_before(caption, STYLE_BODY)
     normalize_paragraph_to_style(blank, STYLE_BODY)

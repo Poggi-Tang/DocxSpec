@@ -6,6 +6,21 @@ The format is based on *Keep a Changelog*, and this project adheres to *Semantic
 
 ---
 
+## [Unreleased]
+
+### Fixed
+
+* Added explicit figure/table caption sequence resets for custom chapter heading styles.
+* KL standardization now emits `SEQ ... \r 1` for the first figure or table in each
+  chapter, preventing numbering such as `2-4` after chapter `1-3`.
+
+### Added
+
+* Added `reset_sequence` to `add_figure_caption_auto()` and
+  `add_table_caption_auto()`.
+
+---
+
 ## [0.0.9] - 2026-06-11
 
 ### Added

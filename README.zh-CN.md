@@ -85,6 +85,21 @@ api.render(
 )
 ```
 
+使用自定义章节标题样式时，每个章节的第一条图/表题注应显式重置序列，避免章节号已经
+变化但 Word 仍沿用上一章的题注流水号：
+
+```python
+chapter = api.new_container()
+chapter.add_heading("测试记录", level=1)
+chapter.add_table_caption_auto("第一张表", reset_sequence=True)
+chapter.add_table([["名称", "数值"]])
+chapter.add_table_caption_auto("第二张表")
+chapter.add_table([["名称", "数值"]])
+```
+
+章节第一条题注会使用 `SEQ 表 \r 1`，后续题注继续递增；
+`add_figure_caption_auto()` 同样支持 `reset_sequence`。
+
 表格单元格支持文字和图片混排，图片块可以单独设置尺寸：
 
 ```python id="mixed-cell"

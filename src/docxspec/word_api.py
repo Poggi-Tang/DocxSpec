@@ -274,34 +274,42 @@ class DocContainer:
         self,
         title: str,
         style: Optional[TextStyle] = None,
+        *,
+        reset_sequence: bool = False,
     ) -> Any:
         """添加自动编号的图注。
 
         :param title: 图注标题文本
         :param style: 题注样式，可选
+        :param reset_sequence: 是否把当前章节的图序号显式重置为 1
         :return: 创建的段落对象
         """
         return self.api.add_figure_caption_auto(
             self.subdoc,
             title,
             style or CAPTION_STYLE,
+            reset_sequence=reset_sequence,
         )
 
     def add_table_caption_auto(
         self,
         title: str,
         style: Optional[TextStyle] = None,
+        *,
+        reset_sequence: bool = False,
     ) -> Any:
         """添加自动编号的表注。
 
         :param title: 表注标题文本
         :param style: 题注样式，可选
+        :param reset_sequence: 是否把当前章节的表序号显式重置为 1
         :return: 创建的段落对象
         """
         return self.api.add_table_caption_auto(
             self.subdoc,
             title,
             style or CAPTION_STYLE,
+            reset_sequence=reset_sequence,
         )
 
 
@@ -1328,12 +1336,19 @@ class WordAPI:
         label: str,
         seq_name: str,
         title: str,
+        *,
+        reset_sequence: bool = False,
     ) -> list[PartConfig]:
+        sequence_code = (
+            rf"SEQ {seq_name} \* ARABIC \r 1"
+            if reset_sequence
+            else rf"SEQ {seq_name} \* ARABIC \s 1"
+        )
         parts: list[PartConfig] = [
             {"type": "text", "value": f"{label} "},
             {"type": "field", "code": r"STYLEREF KL一级标题 \n \* MERGEFORMAT "},
             {"type": "text", "value": "-"},
-            {"type": "field", "code": rf"SEQ {seq_name} \* ARABIC \s 1"},
+            {"type": "field", "code": sequence_code},
         ]
         if title:
             parts.append({"type": "text", "value": f" {title}"})
@@ -1344,10 +1359,17 @@ class WordAPI:
         container: Any,
         title: str,
         style: Optional[TextStyle] = None,
+        *,
+        reset_sequence: bool = False,
     ) -> Any:
         return self.add_field_paragraph(
             container,
-            self._build_auto_caption_parts("图", "图", title),
+            self._build_auto_caption_parts(
+                "图",
+                "图",
+                title,
+                reset_sequence=reset_sequence,
+            ),
             style or CAPTION_STYLE,
         )
 
@@ -1356,10 +1378,17 @@ class WordAPI:
         container: Any,
         title: str,
         style: Optional[TextStyle] = None,
+        *,
+        reset_sequence: bool = False,
     ) -> Any:
         return self.add_field_paragraph(
             container,
-            self._build_auto_caption_parts("表", "表", title),
+            self._build_auto_caption_parts(
+                "表",
+                "表",
+                title,
+                reset_sequence=reset_sequence,
+            ),
             style or CAPTION_STYLE,
         )
 
