@@ -283,12 +283,16 @@ class TestWordAPIAllInOne:
         container = api.new_container()
         result = container.add_figure_caption_auto("示例图")
         assert result is not None
+        reset_result = container.add_figure_caption_auto("新章节示例图", reset_sequence=True)
+        assert r"SEQ 图 \* ARABIC \r 1" in reset_result._element.xml
 
     def test_container_add_table_caption_auto(self, template_path):
         api = WordAPI(template_path)
         container = api.new_container()
         result = container.add_table_caption_auto("示例表")
         assert result is not None
+        reset_result = container.add_table_caption_auto("新章节示例表", reset_sequence=True)
+        assert r"SEQ 表 \* ARABIC \r 1" in reset_result._element.xml
 
     def test_container_chain_calling(self, template_path):
         api = WordAPI(template_path)
@@ -575,6 +579,16 @@ class TestWordAPIAllInOne:
         assert r"SEQ 图 \* ARABIC \s 1" in xml
         assert "系统架构图" in xml
 
+        reset_paragraph = api.add_figure_caption_auto(
+            container.subdoc,
+            "新章节系统架构图",
+            CAPTION_STYLE,
+            reset_sequence=True,
+        )
+        reset_xml = reset_paragraph._element.xml
+        assert r"SEQ 图 \* ARABIC \r 1" in reset_xml
+        assert r"SEQ 图 \* ARABIC \s 1" not in reset_xml
+
 
     def test_add_table_caption_auto(self, template_path):
         api = WordAPI(template_path)
@@ -589,6 +603,16 @@ class TestWordAPIAllInOne:
         assert r"STYLEREF KL一级标题 \n \* MERGEFORMAT " in xml
         assert r"SEQ 表 \* ARABIC \s 1" in xml
         assert "数据统计表" in xml
+
+        reset_paragraph = api.add_table_caption_auto(
+            container.subdoc,
+            "新章节数据统计表",
+            CAPTION_STYLE,
+            reset_sequence=True,
+        )
+        reset_xml = reset_paragraph._element.xml
+        assert r"SEQ 表 \* ARABIC \r 1" in reset_xml
+        assert r"SEQ 表 \* ARABIC \s 1" not in reset_xml
 
     # =========================
     # 8. render 能力

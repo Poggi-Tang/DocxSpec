@@ -264,9 +264,41 @@ def test_existing_caption_text_is_rebuilt_with_standard_fields(tmp_path: Path) -
 
     assert report["captions_standardized"]
     assert "STYLEREF KL一级标题" in xml
-    assert r"SEQ 表 \* ARABIC \s 1" in xml
+    assert r"SEQ 表 \* ARABIC \r 1" in xml
     assert "非标准表题注" in caption.text
     assert len([paragraph for paragraph in result.paragraphs if "非标准表题注" in paragraph.text]) == 1
+
+
+def test_caption_sequences_explicitly_reset_for_each_chapter(tmp_path: Path) -> None:
+    body = tmp_path / "chapter_tables.docx"
+    output = tmp_path / "chapter_tables_standard.docx"
+
+    doc = Document()
+    for chapter in ("第一章", "第二章"):
+        doc.add_paragraph(chapter, style="Heading 1")
+        for index in (1, 2):
+            table = doc.add_table(rows=2, cols=2)
+            table.cell(0, 0).text = "章节"
+            table.cell(0, 1).text = "序号"
+            table.cell(1, 0).text = chapter
+            table.cell(1, 1).text = str(index)
+    doc.save(body)
+
+    report = build_standard_docx(body, output)
+    result = Document(str(output))
+    captions = [
+        paragraph
+        for paragraph in result.paragraphs
+        if "SEQ 表" in paragraph._p.xml
+    ][-4:]
+    field_xml = [paragraph._p.xml for paragraph in captions]
+
+    assert len(report["table_captions_added"]) == 4
+    assert len(captions) == 4
+    assert r"SEQ 表 \* ARABIC \r 1" in field_xml[0]
+    assert r"SEQ 表 \* ARABIC \r 1" not in field_xml[1]
+    assert r"SEQ 表 \* ARABIC \r 1" in field_xml[2]
+    assert r"SEQ 表 \* ARABIC \r 1" not in field_xml[3]
 
 
 def test_build_standard_docx_uses_packaged_template_by_default(tmp_path: Path) -> None:

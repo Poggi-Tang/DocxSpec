@@ -79,6 +79,22 @@ api.render(
 )
 ```
 
+When a custom chapter heading style is used, reset the figure or table sequence explicitly
+on the first caption in each chapter. This avoids Word continuing the sequence from the
+previous chapter even when the `STYLEREF` chapter number changes:
+
+```python
+chapter = api.new_container()
+chapter.add_heading("Test records", level=1)
+chapter.add_table_caption_auto("First table", reset_sequence=True)
+chapter.add_table([["Name", "Value"]])
+chapter.add_table_caption_auto("Second table")
+chapter.add_table([["Name", "Value"]])
+```
+
+The first caption uses `SEQ 表 \r 1`; later captions continue the same sequence. The
+same `reset_sequence` option is available for `add_figure_caption_auto()`.
+
 Table cells can also contain mixed text and images. Image parts support explicit sizing:
 
 ```python
