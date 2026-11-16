@@ -264,3 +264,9 @@ ruff check .
 ## 许可证
 
 MIT License，详见 [LICENSE](https://github.com/Poggi-Tang/DocxSpec/blob/main/LICENSE)。
+
+域刷新结果的 `status` 为 `marked_for_update`、`refreshed` 或 `failed`。仅设置打开更新标记不表示已刷新。Word 更新失败会记录错误；`raise_on_word_error=True` 会抛出异常。当前 COM 调用尚无硬超时保证，不建议直接用于无人值守批量任务。
+
+## 可视化测试报告编辑器
+
+`studio/` 提供本机可运行的模板编辑器，支持磁盘保存、重新打开、配置导入导出及通过 DocxSpec 生成真实 DOCX。安装本仓库后运行 `python studio/server.py`，访问 `http://127.0.0.1:4175`。详细使用方法和当前边界见 [Studio 使用说明](studio/README.md)。

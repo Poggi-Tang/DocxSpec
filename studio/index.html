@@ -1,0 +1,789 @@
+<!doctype html>
+<html lang="zh-CN">
+  <meta charset="UTF-8" /><meta
+    name="viewport"
+    content="width=device-width,initial-scale=1"
+  /><link rel="icon" href="data:," /><title>DocxSpec Studio · 模板编辑器</title
+  ><link rel="stylesheet" href="./icons/style.css" /><style>
+    :root {
+      --blue: #0756ff;
+      --ink: #192133;
+      --line: #d5dbe6;
+    }
+    * {
+      box-sizing: border-box;
+    }
+    body {
+      margin: 0;
+      color: var(--ink);
+      font:
+        16px "Noto Sans CJK SC",
+        Arial,
+        sans-serif;
+      background: #eff2f7;
+    }
+    button,
+    input,
+    select,
+    textarea {
+      font: inherit;
+      color: inherit;
+    }
+    button {
+      cursor: pointer;
+      border: 1px solid transparent;
+      background: transparent;
+      border-radius: 5px;
+      padding: 8px 12px;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+    }
+    button:hover {
+      background: #e5ecfa;
+    }
+    button:focus-visible,
+    input:focus-visible,
+    select:focus-visible,
+    [contenteditable]:focus-visible {
+      outline: 2px solid var(--blue);
+      outline-offset: 3px;
+    }
+    i {
+      font-size: 22px;
+      vertical-align: middle;
+    }
+    header {
+      height: 60px;
+      background: #f9faff;
+      border-bottom: 1px solid var(--line);
+      display: flex;
+      align-items: center;
+      gap: 22px;
+      padding: 0 28px;
+    }
+    header strong {
+      font-size: 22px;
+      white-space: nowrap;
+    }
+    .brand {
+      background: var(--blue);
+      color: white;
+      border-radius: 5px;
+      padding: 5px;
+      font-weight: bold;
+      font-size: 19px;
+    }
+    .sep {
+      height: 22px;
+      border-left: 1px solid var(--line);
+    }
+    .save {
+      font-size: 14px;
+      color: #617085;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .save i {
+      color: #16ac75;
+    }
+    .right {
+      margin-left: auto;
+      display: flex;
+      gap: 12px;
+    }
+    .primary {
+      background: var(--blue);
+      color: white;
+    }
+    .primary:hover {
+      background: #0045d8;
+    }
+    .outline {
+      border-color: #a7b9dc;
+      background: #fff;
+    }
+    .toolbar {
+      height: 54px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 0 24px;
+      border-bottom: 1px solid var(--line);
+      background: #f9faff;
+    }
+    .toolbar .active {
+      color: var(--blue);
+      height: 54px;
+      border-radius: 0;
+      border-bottom: 3px solid var(--blue);
+      margin-right: 20px;
+    }
+    .toolbar select {
+      width: 132px;
+    }
+    .toolbar select,
+    .props select,
+    .props input {
+      border: 1px solid #d1d8e5;
+      border-radius: 5px;
+      padding: 8px;
+      background: white;
+    }
+    .toolbar .icon {
+      padding: 6px 10px;
+    }
+    .app {
+      display: grid;
+      grid-template-columns: 240px minmax(470px, 1fr) 345px;
+      height: calc(100vh - 154px);
+    }
+    nav {
+      padding: 20px 10px;
+      border-right: 1px solid var(--line);
+      background: #f6f8fc;
+    }
+    nav .heading {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-weight: 600;
+      border-bottom: 1px solid var(--line);
+      padding: 0 8px 14px;
+      margin-bottom: 12px;
+    }
+    nav button.nav {
+      width: 100%;
+      padding: 14px 22px;
+      text-align: left;
+      margin: 2px 0;
+      position: relative;
+    }
+    nav button.selected {
+      background: #dce7ff;
+      color: #003bca;
+    }
+    nav button.selected:before {
+      content: "";
+      position: absolute;
+      left: 0;
+      top: 7px;
+      bottom: 7px;
+      width: 3px;
+      background: var(--blue);
+    }
+    .canvas {
+      overflow: auto;
+      padding: 28px 32px 50px;
+      background: #e9edf4;
+    }
+    .paper {
+      background: white;
+      min-height: 1120px;
+      max-width: 100%;
+      margin: auto;
+      padding: 48px 60px;
+      box-shadow: 0 1px 8px #23365112;
+      color: #10151c;
+      font-family: "Noto Serif CJK SC", serif;
+      line-height: 1.65;
+    }
+    .paper h1 {
+      font-size: 29px;
+      margin: 0 0 14px;
+    }
+    .paper p {
+      margin: 0 0 59px;
+      font-size: 16px;
+    }
+    .block {
+      position: relative;
+      margin: 24px -8px 14px;
+      padding: 12px 18px 18px;
+      border: 2px solid transparent;
+      cursor: pointer;
+    }
+    .block.selected {
+      border-color: var(--blue);
+    }
+    .block.selected:before,
+    .block.selected:after {
+      content: "";
+      position: absolute;
+      width: 7px;
+      height: 7px;
+      background: white;
+      border: 1px solid var(--blue);
+      top: -5px;
+    }
+    .block.selected:before {
+      left: -5px;
+    }
+    .block.selected:after {
+      right: -5px;
+    }
+    .badge {
+      position: absolute;
+      top: -25px;
+      left: 12px;
+      background: var(--blue);
+      color: white;
+      font: 14px sans-serif;
+      padding: 5px 9px;
+      border-radius: 4px 4px 0 0;
+    }
+    .block h2 {
+      font-size: 24px;
+      margin: 0 0 14px;
+    }
+    .block table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 1.0667em;
+    }
+    .block td {
+      border: 1px solid #9ca6b8;
+      padding: 7px 13px;
+    }
+    .block td:first-child {
+      width: 115px;
+      background: #f2f4f8;
+      font-weight: 600;
+    }
+    .block ol {
+      margin: 0;
+      padding-left: 23px;
+    }
+    .token {
+      color: #0053de;
+      background: #eaf1ff;
+      border-radius: 4px;
+      padding: 2px 8px;
+      font-family: sans-serif;
+      font-size: 15px;
+    }
+    .upload {
+      width: 100%;
+      min-height: 145px;
+      border: 1px dashed #a9b8d2;
+      background: #f8faff;
+      border-radius: 3px;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      color: #647086;
+      text-align: center;
+      font: 14px/1.8 sans-serif;
+    }
+    .upload i {
+      font-size: 33px;
+    }
+    .upload img {
+      max-height: 180px;
+      max-width: 100%;
+      object-fit: contain;
+    }
+    .props {
+      border-left: 1px solid var(--line);
+      background: #f8faff;
+      padding: 0 23px;
+      overflow: auto;
+    }
+    .tabs {
+      height: 65px;
+      display: flex;
+      gap: 25px;
+      border-bottom: 1px solid var(--line);
+    }
+    .tabs button {
+      border-radius: 0;
+      padding: 0 4px;
+    }
+    .tabs button.on {
+      color: var(--blue);
+      border-bottom: 3px solid var(--blue);
+      font-weight: 600;
+    }
+    .props h2 {
+      font-size: 19px;
+      margin: 28px 0 10px;
+    }
+    .props p {
+      font-size: 14px;
+      line-height: 1.8;
+      color: #69758a;
+    }
+    .props hr {
+      border: 0;
+      border-top: 1px solid var(--line);
+      margin: 25px -23px;
+    }
+    .props label {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      margin: 26px 0;
+    }
+    .props select {
+      width: 160px;
+    }
+    .props input {
+      width: 155px;
+    }
+    .hint {
+      color: #728097;
+      font-size: 12px;
+      line-height: 1.7;
+    }
+    .footer {
+      height: 40px;
+      background: #f9faff;
+      border-top: 1px solid var(--line);
+      padding: 10px 24px;
+      display: flex;
+      justify-content: space-between;
+      font-size: 12px;
+      color: #657186;
+    }
+    .empty-section {
+      border: 1px dashed #b5c1d6;
+      padding: 20px;
+      margin-top: 40px;
+      color: #63718a;
+    }
+    .editable {
+      outline: none;
+    }
+    .editable:focus {
+      background: #f0f5ff;
+    }
+    .notification {
+      position: fixed;
+      bottom: 60px;
+      left: 50%;
+      transform: translateX(-50%);
+      padding: 12px 22px;
+      background: #18283e;
+      color: white;
+      border-radius: 7px;
+      z-index: 10;
+      display: none;
+    }
+    dialog {
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 28px;
+      width: min(800px, 90vw);
+      max-height: 85vh;
+      color: var(--ink);
+      box-shadow: 0 18px 70px #172a4c33;
+    }
+    dialog::backdrop {
+      background: #1b2b4655;
+    }
+    dialog h2 {
+      margin: 0;
+      font-size: 22px;
+    }
+    dialog .modal-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 14px;
+    }
+    dialog p {
+      color: #6c778a;
+      font-size: 14px;
+    }
+    dialog textarea {
+      width: 100%;
+      height: 260px;
+      border: 1px solid #b4bfd2;
+      border-radius: 5px;
+      padding: 14px;
+      resize: vertical;
+      font: 14px/1.8 monospace;
+    }
+    .error {
+      color: #b83434 !important;
+      min-height: 20px;
+    }
+    #preview-body .paper {
+      box-shadow: none;
+      min-height: 0;
+      padding: 20px 32px;
+    }
+    #preview-body .block {
+      margin: 15px 0;
+    }
+    .hide {
+      display: none !important;
+    }
+    .notice {
+      background: #eef4ff;
+      color: #395b94;
+      padding: 12px;
+      border-radius: 4px;
+      font-size: 13px;
+    }
+    .small {
+      font-size: 13px;
+    }
+    .format-on {
+      background: #dce7ff;
+      color: var(--blue);
+    }
+    @media (max-width: 1100px) {
+      .app {
+        grid-template-columns: 175px minmax(390px, 1fr) 265px;
+      }
+      .props {
+        padding: 0 15px;
+      }
+      .props select {
+        width: 135px;
+      }
+      .canvas {
+        padding: 22px 18px;
+      }
+      .paper {
+        padding: 35px 30px;
+      }
+      header {
+        gap: 12px;
+        padding: 0 16px;
+      }
+      header strong {
+        font-size: 18px;
+      }
+    }
+    @media (max-width: 850px) {
+      header .save,
+      header .sep,
+      header .template-name {
+        display: none;
+      }
+      .toolbar {
+        overflow: auto;
+        white-space: nowrap;
+        gap: 3px;
+        padding: 0 10px;
+      }
+      .app {
+        grid-template-columns: 150px minmax(350px, 1fr);
+        height: calc(100vh - 154px);
+      }
+      .props {
+        display: none;
+      }
+      header strong {
+        font-size: 16px;
+      }
+      .right button {
+        font-size: 12px;
+        padding: 8px;
+      }
+      .canvas {
+        padding: 16px;
+      }
+      .paper {
+        padding: 25px;
+        min-width: 340px;
+      }
+      nav button.nav {
+        padding: 12px;
+      }
+      .footer span:last-child {
+        display: none;
+      }
+    }
+    @media (max-width: 540px) {
+      .app {
+        display: block;
+      }
+      .app nav {
+        display: flex;
+        overflow: auto;
+        padding: 4px;
+        height: 52px;
+      }
+      .app nav .heading {
+        display: none;
+      }
+      nav button.nav {
+        white-space: nowrap;
+        width: auto;
+      }
+      .canvas {
+        height: calc(100% - 52px);
+      }
+      header {
+        padding: 0 10px;
+        gap: 6px;
+      }
+      header strong {
+        font-size: 14px;
+      }
+      .brand {
+        font-size: 15px;
+      }
+      .right {
+        gap: 2px;
+      }
+      .right button i {
+        display: none;
+      }
+      header {
+        height: auto;
+        min-height: 90px;
+        flex-wrap: wrap;
+        padding: 8px 10px;
+      }
+      .right {
+        width: 100%;
+        justify-content: flex-end;
+      }
+      .app {
+        height: calc(100vh - 184px);
+      }
+      .props.drawer {
+        top: 144px;
+      }
+      .paper {
+        padding: 22px 15px;
+      }
+      .block {
+        padding: 10px;
+      }
+      .block td {
+        font-size: 13px;
+        padding: 7px;
+      }
+      .block td:first-child {
+        width: 80px;
+      }
+      .paper h1 {
+        font-size: 23px;
+      }
+    }
+    #paper .block + .block {
+      margin-top: 0;
+    }
+    .mobile-properties {
+      display: none;
+    }
+    @media (max-width: 850px) {
+      .mobile-properties {
+        display: inline-flex;
+      }
+      .props.drawer {
+        display: block;
+        position: fixed;
+        right: 0;
+        top: 114px;
+        bottom: 40px;
+        width: 290px;
+        z-index: 8;
+        box-shadow: -12px 0 40px #132b4133;
+      }
+    }
+  </style>
+  <body>
+    <header>
+      <span class="brand">DS</span><strong>DocxSpec Studio</strong
+      ><span class="sep"></span><b class="template-name">测试报告模板</b
+      ><span class="sep"></span
+      ><span class="save" id="save-status"
+        ><i class="ph ph-check-circle"></i> 尚未保存到模板库</span
+      >
+      <div class="right">
+        <button class="outline" id="save-template">保存</button
+        ><button class="primary" id="generate">导出 DOCX</button
+        ><button class="outline" id="sample">测试数据</button
+        ><button class="primary" id="preview">
+          <i class="ph ph-play"></i>生成预览
+        </button>
+      </div>
+    </header>
+    <div class="toolbar">
+      <button class="active"><i class="ph ph-file"></i>纸张画布</button
+      ><button class="icon" id="undo" aria-label="撤销" title="撤销">
+        <i class="ph ph-arrow-u-up-left"></i></button
+      ><button class="icon" id="redo" aria-label="重做" title="重做">
+        <i class="ph ph-arrow-u-up-right"></i></button
+      ><span class="sep"></span
+      ><select id="style-top" aria-label="段落样式">
+        <option>DS正文</option>
+        <option>DS一级标题</option>
+        <option>DS表格文字</option></select
+      ><select id="font-size" aria-label="字号" style="width: 90px">
+        <option>15</option>
+        <option>16</option>
+        <option>18</option>
+        <option>20</option></select
+      ><button class="icon" id="bold" aria-label="加粗">
+        <i class="ph ph-text-b"></i></button
+      ><button class="icon" id="italic" aria-label="斜体">
+        <i class="ph ph-text-italic"></i></button
+      ><span class="sep"></span
+      ><button class="icon" id="align" aria-label="居中或左对齐">
+        <i class="ph ph-text-align-center"></i></button
+      ><button id="add-case" title="添加测试项">
+        <i class="ph ph-plus-square"></i
+        ><span class="small">测试项</span></button
+      ><button class="mobile-properties" id="properties" aria-expanded="false">
+        <i class="ph ph-sliders-horizontal"></i>属性</button
+      ><button id="open-template">打开模板</button
+      ><button id="import-template">导入配置</button
+      ><button id="export" title="导出编辑配置">
+        <i class="ph ph-download-simple"></i><span class="small">导出配置</span>
+      </button>
+    </div>
+    <div class="app">
+      <nav>
+        <div class="heading">
+          <span><i class="ph ph-list-bullets"></i> 文档结构</span
+          ><button id="add-section" aria-label="添加章节">
+            <i class="ph ph-plus"></i>
+          </button>
+        </div>
+        <div id="nav-items"></div>
+      </nav>
+      <main class="canvas"><article class="paper" id="paper"></article></main>
+      <aside class="props">
+        <div class="tabs">
+          <button class="on" data-tab="block">区块属性</button
+          ><button data-tab="style">样式</button>
+        </div>
+        <div id="block-panel">
+          <h2><i class="ph ph-copy"></i> 按测试用例重复</h2>
+          <p>根据数据源的记录数，重复生成区块内容。</p>
+          <hr />
+          <label
+            >数据来源<select id="source">
+              <option>测试用例</option>
+              <option>失败用例</option>
+            </select></label
+          ><label
+            >重复方式<select id="repeat">
+              <option>每条记录</option>
+              <option>仅首条记录</option>
+            </select></label
+          ><label
+            >段落样式<select id="style-side">
+              <option>DS正文</option>
+              <option>DS一级标题</option>
+              <option>DS表格文字</option>
+            </select></label
+          ><label
+            >空数据时<select id="empty">
+              <option>隐藏区块</option>
+              <option>显示待补充</option>
+            </select></label
+          >
+          <p class="hint" id="selection-hint">正在编辑：测试项 1</p>
+        </div>
+        <div id="style-panel" class="hide">
+          <h2>区块样式</h2>
+          <p>样式应用于当前选中的测试项。</p>
+          <hr />
+          <label
+            >文字大小<input
+              id="size-side"
+              type="number"
+              min="12"
+              max="28"
+              value="15" /></label
+          ><label
+            >行间距<select id="line-height">
+              <option>1.5</option>
+              <option selected>1.65</option>
+              <option>2</option>
+            </select></label
+          ><label
+            >表头底色<input type="color" id="color" value="#f2f4f8"
+          /></label>
+          <p class="hint">
+            DS 样式用于组织报告中的文字层级。预览会保留当前设置。
+          </p>
+        </div>
+      </aside>
+    </div>
+    <footer class="footer">
+      <span>编辑示意 · 分页以 Word / WPS 渲染预览为准</span
+      ><span>DocxSpec 文档生成服务 · 样式使用 DS 前缀</span>
+    </footer>
+    <dialog id="library-dialog">
+      <div class="modal-head">
+        <h2>模板库</h2>
+        <button data-close aria-label="关闭">关闭</button>
+      </div>
+      <p>模板保存到本机磁盘，可重新打开继续编辑。</p>
+      <div id="template-list"></div>
+    </dialog>
+    <dialog id="save-dialog">
+      <div class="modal-head">
+        <h2>保存模板</h2>
+        <button data-close aria-label="关闭">关闭</button>
+      </div>
+      <label
+        >模板名称
+        <input
+          id="template-name"
+          maxlength="100"
+          style="width: 100%; padding: 12px; margin: 16px 0" /></label
+      ><button class="primary" id="confirm-save">保存</button
+      ><button id="save-copy">另存为新模板</button>
+      <p class="error" id="save-error"></p>
+    </dialog>
+    <input
+      id="config-file"
+      type="file"
+      accept=".json,application/json"
+      hidden
+    />
+    <dialog id="data-dialog">
+      <div class="modal-head">
+        <h2>测试数据</h2>
+        <button data-close aria-label="关闭"><i class="ph ph-x"></i></button>
+      </div>
+      <p>
+        编辑用于生成报告的 JSON
+        数据。支持空数组，每条记录需包含名称、步骤和结果。
+      </p>
+      <textarea id="data-input" aria-label="样例 JSON"></textarea>
+      <p class="error" id="data-error"></p>
+      <button class="primary" id="apply-data">应用测试数据</button>
+    </dialog>
+    <dialog id="preview-dialog">
+      <div class="modal-head">
+        <h2>报告内容预览</h2>
+        <button data-close aria-label="关闭"><i class="ph ph-x"></i></button>
+      </div>
+      <div class="notice">浏览器内容预览 · 未执行 Word / WPS 排版及域刷新</div>
+      <div id="preview-body"></div>
+    </dialog>
+    <dialog id="section-dialog">
+      <div class="modal-head">
+        <h2>添加章节</h2>
+        <button data-close aria-label="关闭"><i class="ph ph-x"></i></button>
+      </div>
+      <input
+        id="section-name"
+        placeholder="章节名称"
+        style="padding: 10px; width: 100%; margin: 15px 0"
+        maxlength="30"
+      /><button class="primary" id="confirm-section">添加</button>
+    </dialog>
+    <input
+      type="file"
+      id="image-file"
+      accept="image/png,image/jpeg,image/webp,image/gif"
+      hidden
+    />
+    <div class="notification" role="status" id="toast"></div>
+    <script type="module" src="./app.js"></script>
+  </body>
+</html>

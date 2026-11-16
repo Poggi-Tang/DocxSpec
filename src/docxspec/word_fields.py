@@ -24,6 +24,14 @@ class FieldRefreshResult:
     word_refreshed: bool
     error: str | None = None
 
+    @property
+    def status(self) -> str:
+        return (
+            "failed"
+            if self.error
+            else ("refreshed" if self.word_refreshed else "marked_for_update")
+        )
+
 
 def _as_path(docx_path: str | Path) -> Path:
     path = Path(docx_path)
@@ -84,22 +92,53 @@ def mark_update_fields_on_open(docx_path: str | Path) -> Path:
 
 
 def _normalize_table_list_xml(data: bytes) -> tuple[bytes, int]:
-    text = data.decode("utf-8")
+    import re
+
+    root = etree.fromstring(data)
     count = 0
-    replacements = {
-        r'TOC \h \c "表"': r'TOC \h \z \c "表"',
-        r'TOC \h \c "表格"': r'TOC \h \z \c "表"',
-        r'TOC \h \z \c "表格"': r'TOC \h \z \c "表"',
-        r"TOC \h \c &quot;表&quot;": r"TOC \h \z \c &quot;表&quot;",
-        r"TOC \h \c &quot;表格&quot;": r"TOC \h \z \c &quot;表&quot;",
-        r"TOC \h \z \c &quot;表格&quot;": r"TOC \h \z \c &quot;表&quot;",
-    }
-    for old, new in replacements.items():
-        occurrences = text.count(old)
-        if occurrences:
-            text = text.replace(old, new)
-            count += occurrences
-    return text.encode("utf-8"), count
+    stack = []
+    fields = []
+    for node in root.iter():
+        if node.tag == f"{W_QN}fldSimple":
+            fields.append((node, None))
+        elif node.tag == f"{W_QN}fldChar":
+            kind = node.get(f"{W_QN}fldCharType")
+            if kind == "begin":
+                stack.append([node, [], False])
+            elif kind == "separate" and stack:
+                stack[-1][2] = True
+            elif kind == "end" and stack:
+                owner, nodes, _ = stack.pop()
+                fields.append((owner, nodes))
+        elif node.tag == f"{W_QN}instrText" and stack and not stack[-1][2]:
+            stack[-1][1].append(node)
+    for owner, nodes in fields:
+        text = (
+            owner.get(f"{W_QN}instr", "") if nodes is None else "".join(n.text or "" for n in nodes)
+        )
+        if not re.match(r"^\s*TOC\b", text, re.I):
+            continue
+        match = re.search(r'\\c\s+"(表格|表)"', text, re.I)
+        if match is None:
+            continue
+        new = text[: match.start(1)] + "表" + text[match.end(1) :]
+        if not re.search(r"\\z(?=\s|$)", new, re.I):
+            new = new[: match.start()] + r"\z " + new[match.start() :]
+        if new == text:
+            continue
+        if nodes is None:
+            owner.set(f"{W_QN}instr", new)
+        elif nodes:
+            nodes[0].text = new
+            for node in nodes[1:]:
+                node.text = ""
+        owner.set(f"{W_QN}dirty", "true")
+        count += 1
+    return (
+        (etree.tostring(root, xml_declaration=True, encoding="UTF-8", standalone=True), count)
+        if count
+        else (data, 0)
+    )
 
 
 def normalize_table_list_fields(docx_path: str | Path) -> int:
@@ -148,22 +187,18 @@ def refresh_fields_with_word(docx_path: str | Path, *, visible: bool = False) ->
         word.Visible = visible
         doc = word.Documents.Open(str(path), ReadOnly=False, AddToRecentFiles=False)
 
-        try:
-            doc.Fields.Update()
-        except Exception:
-            pass
+        doc.Repaginate()
+        result = doc.Fields.Update()
+        if result not in (None, 0):
+            raise RuntimeError(f"Document field update failed at field {result}")
 
         for story in doc.StoryRanges:
             current = story
             while current is not None:
-                try:
-                    current.Fields.Update()
-                except Exception:
-                    pass
-                try:
-                    current = current.NextStoryRange
-                except Exception:
-                    current = None
+                result = current.Fields.Update()
+                if result not in (None, 0):
+                    raise RuntimeError(f"Story field update failed at field {result}")
+                current = current.NextStoryRange
 
         for toc in doc.TablesOfContents:
             toc.Update()
@@ -173,11 +208,22 @@ def refresh_fields_with_word(docx_path: str | Path, *, visible: bool = False) ->
         doc.Save()
         return True
     finally:
-        if doc is not None:
-            doc.Close(SaveChanges=False)
-        if word is not None:
-            word.Quit()
-        pythoncom.CoUninitialize()
+        import sys
+
+        active_error = sys.exc_info()[1]
+        cleanup_errors = []
+        for action in (
+            (lambda: doc.Close(SaveChanges=False)) if doc is not None else None,
+            (lambda: word.Quit()) if word is not None else None,
+            pythoncom.CoUninitialize,
+        ):
+            if action is not None:
+                try:
+                    action()
+                except Exception as exc:
+                    cleanup_errors.append(str(exc))
+        if cleanup_errors and active_error is None:
+            raise RuntimeError("Cleanup failed: " + "; ".join(cleanup_errors))
 
 
 def refresh_docx_fields(
@@ -211,8 +257,6 @@ def refresh_docx_fields(
             if raise_on_word_error:
                 raise
 
-    if normalize_table_list:
-        normalized += normalize_table_list_fields(path)
     mark_update_fields_on_open(path)
 
     return FieldRefreshResult(

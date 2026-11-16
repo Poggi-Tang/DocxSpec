@@ -1,0 +1,17 @@
+{
+  "name": "docxspec-studio",
+  "version": "1.0.0",
+  "description": "Local visual test-report editor powered by DocxSpec",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "MIT",
+  "type": "module",
+  "dependencies": {
+    "@phosphor-icons/web": "2.1.2",
+    "vite": "8.3.8"
+  }
+}

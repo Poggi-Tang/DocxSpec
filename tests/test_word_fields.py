@@ -1,86 +1,93 @@
-from pathlib import Path
-from zipfile import ZIP_DEFLATED, ZipFile
+import sys
+from types import ModuleType, SimpleNamespace
+from zipfile import ZipFile
 
+import pytest
 from docx import Document
+from docx.oxml import OxmlElement
+from docx.oxml.ns import qn
 
-from docxspec import (
-    mark_update_fields_on_open,
-    normalize_table_list_fields,
-    refresh_docx_fields,
-)
+from docxspec import normalize_table_list_fields, refresh_docx_fields
 
 
-def _replace_docx_part(path: Path, part_name: str, text: str) -> None:
-    tmp_path = path.with_suffix(".tmp.docx")
-    with ZipFile(path, "r") as src:
-        with ZipFile(tmp_path, "w", ZIP_DEFLATED) as dst:
-            for info in src.infolist():
-                data = (
-                    text.encode("utf-8")
-                    if info.filename == part_name
-                    else src.read(info.filename)
-                )
-                dst.writestr(info, data)
-    tmp_path.replace(path)
+def field_doc(path, split=True):
+    d = Document()
+    d.add_paragraph(r'Example: TOC \h \c "表格"')
+    p = d.add_paragraph()
+    for kind in ["begin"]:
+        e = OxmlElement("w:fldChar")
+        e.set(qn("w:fldCharType"), kind)
+        p.add_run()._r.append(e)
+    for text in ["TOC ", r'\h \c "表格"'] if split else [r'TOC \h \c "表格"']:
+        e = OxmlElement("w:instrText")
+        e.text = text
+        p.add_run()._r.append(e)
+    e = OxmlElement("w:fldChar")
+    e.set(qn("w:fldCharType"), "end")
+    p.add_run()._r.append(e)
+    d.save(path)
 
 
-def _read_docx_part(path: Path, part_name: str) -> str:
-    with ZipFile(path, "r") as docx:
-        return docx.read(part_name).decode("utf-8")
+@pytest.mark.parametrize("split", [False, True])
+def test_only_real_fields_normalized(tmp_path, split):
+    p = tmp_path / "a.docx"
+    field_doc(p, split)
+    assert normalize_table_list_fields(p) == 1
+    assert Document(p).paragraphs[0].text == r'Example: TOC \h \c "表格"'
+    assert normalize_table_list_fields(p) == 0
 
 
-def test_mark_update_fields_on_open_sets_word_setting(tmp_path: Path) -> None:
-    docx = tmp_path / "fields.docx"
-    Document().save(docx)
+def test_marked_is_not_refreshed(tmp_path):
+    p = tmp_path / "a.docx"
+    field_doc(p)
+    result = refresh_docx_fields(p, use_word=False)
+    assert result.status == "marked_for_update"
+    assert not result.word_refreshed
+    with ZipFile(p) as z:
+        assert b"updateFields" in z.read("word/settings.xml")
 
-    mark_update_fields_on_open(docx)
-    settings = _read_docx_part(docx, "word/settings.xml")
 
-    assert "updateFields" in settings
-    assert 'w:val="true"' in settings
+@pytest.mark.parametrize("failure", ["exception", "return_index", "close"])
+def test_com_failure_reported_and_cleanup_attempted(tmp_path, monkeypatch, failure):
+    p = tmp_path / "a.docx"
+    Document().save(p)
+    events = []
 
+    def update():
+        if failure == "exception":
+            raise RuntimeError("update failed")
+        return 2 if failure == "return_index" else 0
 
-def test_normalize_table_list_fields_uses_standard_table_label(tmp_path: Path) -> None:
-    docx = tmp_path / "table_list.docx"
-    doc = Document()
-    doc.add_paragraph("表目录")
-    doc.save(docx)
+    def close(**kw):
+        events.append("close")
+        if failure == "close":
+            raise RuntimeError("close failed")
 
-    document_xml = _read_docx_part(docx, "word/document.xml")
-    document_xml = document_xml.replace(
-        "表目录",
-        r'TOC \h \c "表格"',
+    doc = SimpleNamespace(
+        Fields=SimpleNamespace(Update=update),
+        StoryRanges=[],
+        TablesOfContents=[],
+        TablesOfFigures=[],
+        Repaginate=lambda: None,
+        Save=lambda: events.append("save"),
+        Close=close,
     )
-    _replace_docx_part(docx, "word/document.xml", document_xml)
-
-    count = normalize_table_list_fields(docx)
-    normalized_xml = _read_docx_part(docx, "word/document.xml")
-
-    assert count == 1
-    assert r'TOC \h \z \c "表"' in normalized_xml
-    assert r'TOC \h \c "表格"' not in normalized_xml
-
-
-def test_refresh_docx_fields_can_skip_word_com(tmp_path: Path) -> None:
-    docx = tmp_path / "refresh.docx"
-    doc = Document()
-    doc.add_paragraph("表目录")
-    doc.save(docx)
-
-    document_xml = _read_docx_part(docx, "word/document.xml")
-    _replace_docx_part(
-        docx,
-        "word/document.xml",
-        document_xml.replace("表目录", r'TOC \h \z \c "表格"'),
+    app = SimpleNamespace(
+        Documents=SimpleNamespace(Open=lambda *a, **kw: doc), Quit=lambda: events.append("quit")
     )
-
-    result = refresh_docx_fields(docx, use_word=False)
-    settings = _read_docx_part(docx, "word/settings.xml")
-    normalized_xml = _read_docx_part(docx, "word/document.xml")
-
-    assert result.update_fields_on_open is True
-    assert result.table_list_fields_normalized == 1
-    assert result.word_refreshed is False
-    assert result.error is None
-    assert "updateFields" in settings
-    assert r'TOC \h \z \c "表"' in normalized_xml
+    pc = ModuleType("pythoncom")
+    pc.CoInitialize = lambda: None
+    pc.CoUninitialize = lambda: events.append("uninit")
+    wc = ModuleType("win32com")
+    client = ModuleType("win32com.client")
+    client.DispatchEx = lambda *a: app
+    wc.client = client
+    for name, module in [("pythoncom", pc), ("win32com", wc), ("win32com.client", client)]:
+        monkeypatch.setitem(sys.modules, name, module)
+    result = refresh_docx_fields(p)
+    assert result.status == "failed" and not result.word_refreshed and result.error
+    assert "quit" in events and "uninit" in events
+    if failure != "close":
+        assert "save" not in events
+    with pytest.raises(RuntimeError):
+        refresh_docx_fields(p, raise_on_word_error=True)
