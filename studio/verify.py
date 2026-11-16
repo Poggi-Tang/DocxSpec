@@ -3,7 +3,7 @@ import json, os
 from pathlib import Path
 
 with sync_playwright() as p:
-    b = p.chromium.launch(executable_path="/usr/bin/chromium", headless=True, args=["--no-sandbox"])
+    b = p.chromium.launch(executable_path=os.environ.get("STUDIO_BROWSER_PATH"), headless=True, args=["--no-sandbox"])
     page = b.new_page(viewport={"width": 1487, "height": 1058}, device_scale_factor=1)
     errors = []
     page.on("pageerror", lambda e: errors.append(str(e)))

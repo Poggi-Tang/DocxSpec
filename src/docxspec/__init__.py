@@ -9,6 +9,7 @@ from .kl_standard import (
     clean_heading_number,
     detect_source_front_matter,
 )
+from .template_styles import ensure_ds_styles
 from .word_api import BlockTemplate, DocContainer, WordAPI
 from .word_fields import (
     FieldRefreshResult,
@@ -34,6 +35,7 @@ __version__ = "0.0.10"
 
 __all__ = [
     "WordAPI",
+    "ensure_ds_styles",
     "BlockTemplate",
     "DocContainer",
     "FieldRefreshResult",

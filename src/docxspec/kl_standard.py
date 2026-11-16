@@ -1,4 +1,4 @@
-"""KL 标准 Word 文档处理能力。
+"""DS 标准 Word 文档处理能力。
 
 本模块把公司 Word 标准化流程沉淀为 DocxSpec 的库能力。它不绑定 GUI，
 只提供可复用的 DOCX 分类、样式规范化、题注字段、标准文档构建和检查入口。
@@ -25,21 +25,23 @@ from docx.table import Table
 from docx.text.paragraph import Paragraph
 from docxcompose.composer import Composer
 
+from .template_styles import ensure_ds_styles
+
 PACKAGE_ASSETS_DIR = Path(__file__).resolve().parent / "assets"
 DEFAULT_MASTER_TEMPLATE = PACKAGE_ASSETS_DIR / "docxspec_master_template.docx"
 
-STYLE_MAIN_TITLE = "KL主标题"
-STYLE_HEADING_1 = "KL一级标题"
-STYLE_HEADING_2 = "KL二级标题"
-STYLE_HEADING_3 = "KL三级标题"
-STYLE_HEADING_4 = "KL四级标题"
-STYLE_HEADING_5 = "KL五级标题"
-STYLE_HEADING_6 = "KL六级标题"
-STYLE_BODY = "KL正文"
-STYLE_CAPTION = "KL题注"
-STYLE_TABLE_HEADER = "KL表格表头"
-STYLE_TABLE_BODY = "KL表格文字"
-STYLE_IMAGE = "KL图片"
+STYLE_MAIN_TITLE = "DS主标题"
+STYLE_HEADING_1 = "DS一级标题"
+STYLE_HEADING_2 = "DS二级标题"
+STYLE_HEADING_3 = "DS三级标题"
+STYLE_HEADING_4 = "DS四级标题"
+STYLE_HEADING_5 = "DS五级标题"
+STYLE_HEADING_6 = "DS六级标题"
+STYLE_BODY = "DS正文"
+STYLE_CAPTION = "DS题注"
+STYLE_TABLE_HEADER = "DS表格表头"
+STYLE_TABLE_BODY = "DS表格文字"
+STYLE_IMAGE = "DS图片"
 
 REQUIRED_STYLES = [
     STYLE_HEADING_1,
@@ -192,7 +194,7 @@ def set_paragraph_text(paragraph: Paragraph, text: str) -> None:
 
 
 def clear_numbering(paragraph: Paragraph) -> None:
-    """清除段落自身编号设置，让 KL 标题样式接管编号。"""
+    """清除段落自身编号设置，让 DS 标题样式接管编号。"""
     ppr = paragraph._element.get_or_add_pPr()
     for num_pr in list(ppr.findall(qn("w:numPr"))):
         ppr.remove(num_pr)
@@ -292,7 +294,7 @@ def is_short_heading_candidate(text: str) -> bool:
 
 
 def classify_heading(text: str, paragraph: Paragraph | None = None) -> tuple[str, str, str, str]:
-    """按文本和已有样式判断段落应使用的 KL 标题/正文类型。"""
+    """按文本和已有样式判断段落应使用的 DS 标题/正文类型。"""
     raw = text.strip()
     if is_code_like_line(raw):
         return "body", raw, "code-like line is body, not heading", "high"
@@ -607,7 +609,7 @@ def has_table_caption_field(paragraph: Paragraph) -> bool:
 def has_standard_caption_fields(paragraph: Paragraph, seq_name: str) -> bool:
     """判断题注是否同时包含公司标准章节域和指定 SEQ 域。"""
     fields = paragraph_field_xml(paragraph)
-    return "STYLEREF KL一级标题" in fields and f"SEQ {seq_name}" in fields
+    return "STYLEREF DS一级标题" in fields and f"SEQ {seq_name}" in fields
 
 
 def _caption_sequence_field_code(seq_name: str, sequence_no: int) -> str:
@@ -666,11 +668,11 @@ def add_figure_caption_after(
     chapter_no: int = 1,
     figure_no: int = 1,
 ) -> None:
-    """在图片段落后插入 KL 图题注和必要空行。"""
+    """在图片段落后插入 DS 图题注和必要空行。"""
     caption = insert_paragraph_after(paragraph, STYLE_CAPTION)
     normalize_paragraph_to_style(caption, STYLE_CAPTION)
     caption.add_run("图 ")
-    append_field(caption.add_run(), r" STYLEREF KL一级标题 \n \* MERGEFORMAT ", str(chapter_no))
+    append_field(caption.add_run(), r" STYLEREF DS一级标题 \n \* MERGEFORMAT ", str(chapter_no))
     caption.add_run("-")
     append_field(
         caption.add_run(),
@@ -688,11 +690,11 @@ def set_figure_caption_paragraph(
     chapter_no: int = 1,
     figure_no: int = 1,
 ) -> None:
-    """把图片后的未编号题注文本改为 KL 图题注字段。"""
+    """把图片后的未编号题注文本改为 DS 图题注字段。"""
     paragraph.text = ""
     normalize_paragraph_to_style(paragraph, STYLE_CAPTION)
     paragraph.add_run("图 ")
-    append_field(paragraph.add_run(), r" STYLEREF KL一级标题 \n \* MERGEFORMAT ", str(chapter_no))
+    append_field(paragraph.add_run(), r" STYLEREF DS一级标题 \n \* MERGEFORMAT ", str(chapter_no))
     paragraph.add_run("-")
     append_field(
         paragraph.add_run(),
@@ -708,11 +710,11 @@ def set_table_caption_paragraph(
     chapter_no: int = 1,
     table_no: int = 1,
 ) -> None:
-    """把已有表题注文本或非标准字段改为 KL 标准表题注字段。"""
+    """把已有表题注文本或非标准字段改为 DS 标准表题注字段。"""
     paragraph.text = ""
     normalize_paragraph_to_style(paragraph, STYLE_CAPTION)
     paragraph.add_run("表 ")
-    append_field(paragraph.add_run(), r" STYLEREF KL一级标题 \n \* MERGEFORMAT ", str(chapter_no))
+    append_field(paragraph.add_run(), r" STYLEREF DS一级标题 \n \* MERGEFORMAT ", str(chapter_no))
     paragraph.add_run("-")
     append_field(
         paragraph.add_run(),
@@ -738,11 +740,11 @@ def add_table_caption_before(
     chapter_no: int = 1,
     table_no: int = 1,
 ) -> None:
-    """在表格前插入 KL 表题注和必要空行。"""
+    """在表格前插入 DS 表题注和必要空行。"""
     caption = insert_paragraph_before(table, STYLE_CAPTION)
     normalize_paragraph_to_style(caption, STYLE_CAPTION)
     caption.add_run("表 ")
-    append_field(caption.add_run(), r" STYLEREF KL一级标题 \n \* MERGEFORMAT ", str(chapter_no))
+    append_field(caption.add_run(), r" STYLEREF DS一级标题 \n \* MERGEFORMAT ", str(chapter_no))
     caption.add_run("-")
     append_field(
         caption.add_run(),
@@ -829,7 +831,7 @@ def is_heading_paragraph(paragraph: Paragraph) -> bool:
 
 
 def ensure_blank_before_heading(paragraph: Paragraph) -> None:
-    """当前一块不是标题时，确保标题前有一个 KL 正文空段落。"""
+    """当前一块不是标题时，确保标题前有一个 DS 正文空段落。"""
     prev = paragraph._element.getprevious()
     if prev is not None and prev.tag == qn("w:p"):
         prev_para = Paragraph(prev, paragraph._parent)
@@ -845,7 +847,7 @@ def ensure_blank_before_heading(paragraph: Paragraph) -> None:
 
 
 def apply_table_styles(table: Table) -> None:
-    """给表格首行和表体应用 KL 表格样式。"""
+    """给表格首行和表体应用 DS 表格样式。"""
     for row_idx, row in enumerate(table.rows):
         for cell in row.cells:
             for paragraph in cell.paragraphs:
@@ -1156,12 +1158,12 @@ def build_standard_docx(
     *,
     skip_source_front_matter: bool = False,
 ) -> dict[str, Any]:
-    """基于 KL 母版把正文文档转换为标准文档。"""
+    """基于 DS 母版把正文文档转换为标准文档。"""
     input_path = Path(input_docx)
     output_path = Path(output_docx)
     template_path = Path(template_docx) if template_docx is not None else DEFAULT_MASTER_TEMPLATE
     if not template_path.exists():
-        raise FileNotFoundError(f"KL母版模板不存在: {template_path}")
+        raise FileNotFoundError(f"DS母版模板不存在: {template_path}")
     source_report = classify_docx_body(input_path)
     detected_source_front_matter = detect_source_front_matter(source_report)
     source_front_matter = (
@@ -1190,6 +1192,13 @@ def build_standard_docx(
         shutil.copy2(template_path, front_docx)
 
         front_doc = Document(str(front_docx))
+        # Retain support for explicit templates created before the DS rename.
+        for style in front_doc.styles:
+            if style.name.startswith("KL"):
+                style.name = "DS" + style.name[2:]
+        for node in front_doc.element.xpath(".//w:instrText"):
+            if node.text:
+                node.text = node.text.replace("STYLEREF KL", "STYLEREF DS")
         replace_cover_title(front_doc, source_title)
         replace_cover_file_number(front_doc, source_file_number)
         remove_template_front_matter_samples(front_doc)
@@ -1211,6 +1220,7 @@ def build_standard_docx(
         doc = Document(str(composed_docx))
         set_default_headers(doc, source_title)
         report = standardize_appended_body(doc, front_count + 1, source_title, source_blocks)
+        ensure_ds_styles(doc)
         doc.save(str(output_path))
 
     report.update(
@@ -1460,14 +1470,17 @@ def field_instr_text(docx: Path | str) -> str:
 
 
 def check_word_standard(docx: Path | str) -> dict[str, Any]:
-    """检查 DOCX 是否包含 KL 标准核心样式和题注/清单字段信号。"""
+    """检查 DOCX 是否包含 DS 标准核心样式和题注/清单字段信号。"""
     docx_path = Path(docx)
     found_styles = style_names_in_docx(docx_path)
-    missing_styles = [name for name in REQUIRED_STYLES if name not in found_styles]
-    fields = field_instr_text(docx_path)
+    missing_styles = [
+        name for name in REQUIRED_STYLES
+        if name not in found_styles and "KL" + name[2:] not in found_styles
+    ]
+    fields = field_instr_text(docx_path).replace("STYLEREF KL", "STYLEREF DS")
     missing_fields: list[str] = []
-    if ("SEQ 图" in fields or "SEQ 表" in fields) and "STYLEREF KL一级标题" not in fields:
-        missing_fields.append("STYLEREF KL一级标题")
+    if ("SEQ 图" in fields or "SEQ 表" in fields) and "STYLEREF DS一级标题" not in fields:
+        missing_fields.append("STYLEREF DS一级标题")
     missing_toc = [
         snippet
         for caption, snippet in {

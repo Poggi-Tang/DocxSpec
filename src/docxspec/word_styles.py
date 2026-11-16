@@ -216,8 +216,8 @@ def make_rich_text(text: Any, style: TextStyle) -> RichText:
     rich_text = RichText()
     rich_text.add(
         "" if text is None else str(text),
-        font=style.font_name or DEFAULT_FONT_NAME,
-        size=pt_to_richtext_size(style.font_size or 12.0),
+        font=style.font_name,
+        size=pt_to_richtext_size(style.font_size) if style.font_size is not None else None,
         bold=style.bold,
         italic=style.italic,
         color=style.font_color,
@@ -225,105 +225,22 @@ def make_rich_text(text: Any, style: TextStyle) -> RichText:
     return rich_text
 
 
-MAIN_STYLE = make_text_style(
-    style_name="KL主标题",
-    font_name=DEFAULT_FONT_NAME,
-    font_size="二号",
-    align="center",
-    line_spacing=1.5,
-)
+# Font and paragraph properties come from the supplied template styles.
+MAIN_STYLE = make_text_style(style_name="DS主标题")
 Main_STYLE = MAIN_STYLE
-
-H1_STYLE = make_text_style(
-    style_name="KL一级标题",
-    font_name=DEFAULT_FONT_NAME,
-    font_size="小四",
-    bold=True,
-)
-
-H2_STYLE = make_text_style(
-    style_name="KL二级标题",
-    font_name=DEFAULT_FONT_NAME,
-    font_size="小四",
-    bold=True,
-)
-
-H3_STYLE = make_text_style(
-    style_name="KL三级标题",
-    font_name=DEFAULT_FONT_NAME,
-    font_size="小四",
-    bold=False,
-)
-
-H4_STYLE = make_text_style(
-    style_name="KL四级标题",
-    font_name=DEFAULT_FONT_NAME,
-    font_size="小四",
-    bold=False,
-)
-
-H5_STYLE = make_text_style(
-    style_name="KL五级标题",
-    font_name=DEFAULT_FONT_NAME,
-    font_size="小四",
-    bold=False,
-)
-
-H6_STYLE = make_text_style(
-    style_name="KL六级标题",
-    font_name=DEFAULT_FONT_NAME,
-    font_size="小四",
-    bold=False,
-)
-
-BODY_STYLE = make_text_style(
-    style_name="KL正文",
-    font_name=DEFAULT_FONT_NAME,
-    font_size="小四",
-    line_spacing=1.5,
-    first_line_indent_chars=2,
-)
-
-CAPTION_STYLE = make_text_style(
-    style_name="KL题注",
-    font_name=DEFAULT_FONT_NAME,
-    font_size="小四",
-    align="center",
-    line_spacing=1.5,
-)
-
-HEADER_STYLE = make_text_style(
-    style_name="KL页眉",
-    font_name=DEFAULT_FONT_NAME,
-    font_size="五号",
-    align="center",
-)
-
-FOOTER_STYLE = make_text_style(
-    style_name="KL页脚",
-    font_name=DEFAULT_FONT_NAME,
-    font_size="五号",
-    align="center",
-)
-
-IMAGE_STYLE = make_text_style(
-    style_name="KL图片",
-    align="center",
-)
-
-TABLE_HEADER_STYLE = make_cell_style(
-    paragraph_style_name="KL表格表头",
-    font_name=DEFAULT_FONT_NAME,
-    font_size="五号",
-    align="center",
-)
-
-TABLE_BODY_STYLE = make_cell_style(
-    paragraph_style_name="KL表格文字",
-    font_name=DEFAULT_FONT_NAME,
-    font_size="五号",
-    align="left",
-)
+H1_STYLE = make_text_style(style_name="DS一级标题")
+H2_STYLE = make_text_style(style_name="DS二级标题")
+H3_STYLE = make_text_style(style_name="DS三级标题")
+H4_STYLE = make_text_style(style_name="DS四级标题")
+H5_STYLE = make_text_style(style_name="DS五级标题")
+H6_STYLE = make_text_style(style_name="DS六级标题")
+BODY_STYLE = make_text_style(style_name="DS正文")
+CAPTION_STYLE = make_text_style(style_name="DS题注")
+HEADER_STYLE = make_text_style(style_name="DS页眉")
+FOOTER_STYLE = make_text_style(style_name="DS页脚")
+IMAGE_STYLE = make_text_style(style_name="DS图片")
+TABLE_HEADER_STYLE = make_cell_style(paragraph_style_name="DS表格表头")
+TABLE_BODY_STYLE = make_cell_style(paragraph_style_name="DS表格文字")
 
 __all__ = [
     "DEFAULT_FONT_NAME",

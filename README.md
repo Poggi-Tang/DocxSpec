@@ -21,7 +21,7 @@ It provides a small, template-driven API for generating `.docx` reports from use
 * Automatic figure and table caption numbering
 * Page field helpers such as `PAGE` and `NUMPAGES`
 * Word field refresh helpers for TOC, figure lists, table lists, and captions
-* KL-standard document classification, validation, and standard document assembly
+* DS-standard document classification, validation, and standard document assembly
 * PyPI-ready packaging and CI/CD workflows
 
 ## Installation
@@ -130,6 +130,26 @@ A typical workflow is:
 3. Pass the rendered blocks into `api.render(...)`
 4. Export the final report
 
+## DocxSpec Studio
+
+Run the local browser editor without Node.js:
+
+```bash
+python -m pip install -e .
+python studio/server.py --data-dir .local-acceptance-data
+```
+
+Open `http://127.0.0.1:4175`. The default chapter tree comes from the built-in DS
+master: cover, revision history, TOC, figure/table lists and the master's heading
+hierarchy. Exports retain the master styles, numbering and section headers/footers.
+Use `--port` if another application already occupies the default port.
+
+On Windows, install `python -m pip install -e ".[word]"` and add `--refresh-fields`
+to refresh field caches through local Microsoft Word before download. A refresh
+failure stops export. Without this option, only the update-on-open flag is set.
+See [Studio instructions](studio/README.md) and [update notes](CHANGELOG.md).
+The current Word/WPS rendering and PDF behavior still require manual verification.
+
 ## Template Requirements
 
 `docxspec` is template-driven.
@@ -140,11 +160,17 @@ When preparing your own template, make sure that:
 * the required paragraph / table styles exist in the template
 * custom report styles are defined in advance if your project depends on them
 
-The demo template in `Demo/template.docx` is provided as a runnable example, but demo assets are not packaged into the published wheel. The KL master template used by `build_standard_docx()` is bundled separately as package data.
+`WordAPI` also embeds all 17 DS styles from the built-in master, including unused
+heading levels, captions, tables, pictures, TOC and header/footer styles for later
+manual editing. Missing style and numbering dependencies are copied with remapped
+IDs; existing styles in a custom template are preserved. These are font references
+and formatting definitions, not embedded font files.
 
-## KL Standard Documents
+The demo template in `Demo/template.docx` is provided as a runnable example, but demo assets are not packaged into the published wheel. The DS master template used by `build_standard_docx()` is bundled separately as package data.
 
-`docxspec` also provides KL-standard document utilities for workflows that start from an
+## DS Standard Documents
+
+`docxspec` also provides DS-standard document utilities for workflows that start from an
 existing body-only `.docx` file and need a standardized output document.
 
 ```python
@@ -159,14 +185,14 @@ build_result = build_standard_docx(
 check_result = check_word_standard("standard.docx")
 ```
 
-These APIs reuse the KL styles and field-code rules from the master template. They are intended
+These APIs reuse the DS styles and field-code rules from the master template. They are intended
 for document standardization and validation, while `WordAPI` remains the primary API for
 template-driven report generation.
 
 ## Refreshing Word Fields
 
-`docxspec` can mark a generated `.docx` so Word/WPS refreshes fields when the document is
-opened. On Windows with Microsoft Word installed, it can also refresh fields immediately
+`docxspec` can mark a generated `.docx` to request field updates when it is opened.
+Word/WPS may leave some field caches unchanged; the flag is not proof of a refresh. On Windows with Microsoft Word installed, it can also refresh fields immediately
 through Word COM automation.
 
 ```python

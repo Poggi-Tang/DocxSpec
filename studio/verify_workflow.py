@@ -1,20 +1,22 @@
 """End-to-end browser test against server.py, including real downloaded DOCX."""
 
 from pathlib import Path
+import os
 import io
 import json
 import zipfile
 from playwright.sync_api import sync_playwright
 
 root = Path(__file__).resolve().parent
+base_url = os.environ.get("STUDIO_URL", "http://127.0.0.1:4175").rstrip("/")
 (root / "evidence").mkdir(exist_ok=True)
 with sync_playwright() as p:
-    b = p.chromium.launch(executable_path="/usr/bin/chromium", headless=True, args=["--no-sandbox"])
+    b = p.chromium.launch(executable_path=os.environ.get("STUDIO_BROWSER_PATH"), headless=True, args=["--no-sandbox"])
     context = b.new_context(viewport={"width": 1487, "height": 1058}, device_scale_factor=1)
     page = context.new_page()
     errors = []
     page.on("pageerror", lambda e: errors.append(str(e)))
-    page.goto("http://127.0.0.1:4175/")
+    page.goto(base_url + "/")
     page.wait_for_function(
         "document.querySelector('#save-status').textContent!=='尚未保存到模板库'"
     )
@@ -69,7 +71,7 @@ with sync_playwright() as p:
     # New browser context proves reopening uses server persistence, not localStorage.
     second = b.new_context()
     other = second.new_page()
-    other.goto("http://127.0.0.1:4175/")
+    other.goto(base_url + "/")
     other.on("dialog", lambda d: d.accept())
     other.locator("#open-template").click()
     other.locator("[data-open]").first.click()
@@ -80,15 +82,15 @@ with sync_playwright() as p:
     assert page.evaluate("document.documentElement.scrollWidth<=innerWidth")
     page.screenshot(path=str(root / "evidence/workflow-mobile.png"))
     # Bad imports and cross-origin calls must not mutate stored records.
-    response = context.request.post("http://127.0.0.1:4175/api/validate", data={"schema": "bad"})
+    response = context.request.post(base_url + "/api/validate", data={"schema": "bad"})
     assert response.status == 400
     response = context.request.post(
-        "http://127.0.0.1:4175/api/templates",
+        base_url + "/api/templates",
         headers={"Origin": "https://external.invalid"},
         data={},
     )
     assert response.status == 403
-    assert context.request.get("http://127.0.0.1:4175/.data/studio.sqlite3").status == 404
+    assert context.request.get(base_url + "/.data/studio.sqlite3").status == 404
     assert not errors, errors
     b.close()
     print(

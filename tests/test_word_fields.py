@@ -91,3 +91,52 @@ def test_com_failure_reported_and_cleanup_attempted(tmp_path, monkeypatch, failu
         assert "save" not in events
     with pytest.raises(RuntimeError):
         refresh_docx_fields(p, raise_on_word_error=True)
+
+
+def test_word_refresh_updates_directories_then_repaginated_story_caches(tmp_path, monkeypatch):
+    from docxspec import refresh_fields_with_word
+
+    path = tmp_path / "refresh.docx"
+    Document().save(path)
+    events = []
+
+    def story(label, following=None):
+        def update():
+            events.append(label)
+            return 0
+        return SimpleNamespace(Fields=SimpleNamespace(Update=update), NextStoryRange=following)
+
+    def directory(label):
+        return SimpleNamespace(
+            Update=lambda: events.append(label),
+            UpdatePageNumbers=lambda: events.append(label + " pages"),
+        )
+
+    doc = SimpleNamespace(
+        Fields=story("body").Fields,
+        StoryRanges=[story("header", story("next section footer"))],
+        TablesOfContents=[directory("toc")],
+        TablesOfFigures=[directory("figures")],
+        Repaginate=lambda: events.append("paginate"),
+        Save=lambda: events.append("save"),
+        Close=lambda **kw: events.append("close"),
+    )
+    app = SimpleNamespace(
+        Documents=SimpleNamespace(Open=lambda *args, **kw: doc),
+        Quit=lambda: events.append("quit"),
+    )
+    pc = ModuleType("pythoncom")
+    pc.CoInitialize = lambda: None
+    pc.CoUninitialize = lambda: events.append("uninit")
+    wc = ModuleType("win32com")
+    client = ModuleType("win32com.client")
+    client.DispatchEx = lambda *args: app
+    wc.client = client
+    for name, module in [("pythoncom", pc), ("win32com", wc), ("win32com.client", client)]:
+        monkeypatch.setitem(sys.modules, name, module)
+    assert refresh_fields_with_word(path)
+    assert events == [
+        "paginate", "body", "header", "next section footer", "toc", "figures",
+        "paginate", "header", "next section footer", "toc pages", "figures pages",
+        "save", "close", "quit", "uninit",
+    ]

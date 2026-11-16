@@ -23,7 +23,7 @@
 * 图/表题注自动编号
 * 页码字段支持（`PAGE` / `NUMPAGES`）
 * Word 域刷新辅助能力（目录、图目录、表目录、题注）
-* KL 标准文档识别、校验与组装
+* DS 标准文档识别、校验与组装
 * 完整的 PyPI 打包与 CI/CD 流程
 
 ---
@@ -147,6 +147,26 @@ table_container.add_table(
 
 ---
 
+## 浏览器编辑器 Studio
+
+日常启动无需 Node.js：
+
+```powershell
+python -m pip install -e .
+python studio/server.py --data-dir .local-acceptance-data
+```
+
+打开 `http://127.0.0.1:4175`。网页默认从内置母版读取封面、修改记录、目录、图目录、
+表目录及正文 1—6 级标题结构；当前母版含两组示例标题，用例区位于第一组六级标题下。
+导出沿用母版的字体、编号、表格、图片、题注和各节页眉页脚。端口被占用时使用 `--port`。
+
+Windows 上可安装 `python -m pip install -e ".[word]"`，启动时增加 `--refresh-fields`，
+在下载前调用本机 Microsoft Word 更新域并保存；失败时导出报错。默认启动只写入打开更新
+标记，不保证 Office 自动刷新所有区域。当前版本的真实 Word/WPS 排版与 PDF 仍需人工验收。
+详见 [Studio 使用说明](studio/README.md) 和 [更新说明](CHANGELOG.md)。
+
+---
+
 ## 模板要求
 
 `docxspec` 是一个 **模板驱动型库**。
@@ -157,6 +177,10 @@ table_container.add_table(
 * 模板中需预先定义所需的段落/表格样式
 * 若项目依赖特定样式（如报告规范），需在模板中提前配置
 
+默认输出会携带母版完整的 17 个 DS 样式，包括未使用的标题级别，方便人工续编。
+自定义模板已有的同名样式保留，缺失样式及编号依赖自动补齐；字体文件本身不嵌入 DOCX。
+`kl_standard` 模块名保持兼容，规范检查仍可识别旧 KL 样式。
+
 仓库中的 `Demo/template.docx` 提供了一个可运行示例
 （注意：Demo 模板不会被打包到发布的 wheel 中）
 
@@ -164,7 +188,7 @@ table_container.add_table(
 
 ## Word 域刷新
 
-`docxspec` 可以给生成后的 `.docx` 写入打开自动刷新标记，使 Word/WPS 在打开文档时刷新目录、图目录、表目录和题注等域。若运行环境为 Windows，且已安装 Microsoft Word 和 `pywin32`，也可以通过 Word COM 立即刷新域。
+`docxspec` 可以给生成后的 `.docx` 写入打开时更新域的请求标记；该标记不保证 Word/WPS 已刷新目录、图目录、表目录、题注或页脚缓存。若运行环境为 Windows，且已安装 Microsoft Word 和 `pywin32`，也可以通过 Word COM 立即刷新域。
 
 ```python id="field-refresh"
 from docxspec import refresh_docx_fields

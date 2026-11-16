@@ -42,6 +42,29 @@ def validate(data):
     if not isinstance(sections, list) or not 3 <= len(sections) <= 50:
         raise ValueError("需要 3 至 50 个章节")
     sections = [text(s, 100) for s in sections]
+    metadata = data.get("section_meta")
+    if metadata is not None:
+        if not isinstance(metadata, list) or len(metadata) != len(sections):
+            raise ValueError("章节结构与章节数量不一致")
+        cleaned_meta = []
+        for entry in metadata:
+            if not isinstance(entry, dict):
+                raise ValueError("章节结构无效")
+            kind, level = entry.get("kind"), entry.get("level")
+            if kind not in ("cover", "revision", "toc", "figures", "tables", "heading", "cases"):
+                raise ValueError("章节类型无效")
+            if type(level) is not int or not 0 <= level <= 6:
+                raise ValueError("标题级别无效")
+            if (kind in ("heading", "cases")) != (level > 0):
+                raise ValueError("章节类型与标题级别不一致")
+            cleaned_meta.append(dict(kind=kind, level=level))
+        if [entry["kind"] for entry in cleaned_meta[:5]] != [
+            "cover", "revision", "toc", "figures", "tables"
+        ] or any(entry["level"] == 0 for entry in cleaned_meta[5:]):
+            raise ValueError("内置母版前置页结构无效")
+        if sum(entry["kind"] == "cases" for entry in cleaned_meta) != 1:
+            raise ValueError("需要且只能有一个测试用例章节")
+        metadata = cleaned_meta
     cases = data.get("cases")
     if not isinstance(cases, list) or len(cases) > 100:
         raise ValueError("测试用例最多 100 条")
@@ -67,10 +90,10 @@ def validate(data):
         if not key.isdigit() or int(key) >= 100 or not isinstance(f, dict):
             raise ValueError("区块样式索引无效")
         value = dict(
-            size=15,
-            line="1.65",
+            size=14,
+            line="1",
             color="#f2f4f8",
-            style="DS正文",
+            style="DS表格文字",
             bold=False,
             italic=False,
             center=False,
@@ -82,10 +105,12 @@ def validate(data):
             or not 12 <= value["size"] <= 28
         ):
             raise ValueError("字号范围为 12 至 28")
-        if str(value["line"]) not in ("1.5", "1.65", "2") or value["style"] not in (
-            "DS正文",
-            "DS一级标题",
-            "DS表格文字",
+        if str(value["line"]) not in ("1", "1.5", "1.65", "2") or value["style"] not in (
+            "DS正文", "DS主标题", "DS文档标题",
+            "DS一级标题", "DS二级标题", "DS三级标题",
+            "DS四级标题", "DS五级标题", "DS六级标题",
+            "DS表格文字", "DS表格表头", "DS题注", "DS图片",
+            "DS目录", "DS页眉", "DS页脚",
         ):
             raise ValueError("行距或样式无效")
         if not isinstance(value["color"], str) or not re.fullmatch(
@@ -95,7 +120,7 @@ def validate(data):
         if any(type(value[k]) is not bool for k in ("bold", "italic", "center")):
             raise ValueError("样式开关无效")
         value["line"] = str(value["line"])
-        result_formats[key] = value
+        result_formats[key] = {k: value[k] for k in value if k in f}
     for key in texts:
         if not key.isdigit() or int(key) >= len(sections):
             raise ValueError("章节索引无效")
@@ -106,7 +131,7 @@ def validate(data):
             raise ValueError("当前选中位置无效")
         return v
 
-    return dict(
+    result = dict(
         schema=SCHEMA,
         sections=sections,
         section=index("section", len(sections)),
@@ -119,6 +144,10 @@ def validate(data):
         format=result_formats,
         texts={k: text(v) for k, v in texts.items()},
     )
+
+    if metadata is not None:
+        result["section_meta"] = metadata
+    return result
 
 
 def image_bytes(value):

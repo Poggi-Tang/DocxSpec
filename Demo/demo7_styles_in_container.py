@@ -33,24 +33,24 @@ def main() -> Path:
     api = WordAPI(str(TEMPLATE_PATH))
 
     result = api.new_container()
-    result.add_paragraph("KL主标题 / MAIN_STYLE", style=MAIN_STYLE)
-    result.add_paragraph("KL一级标题 / H1_STYLE", style=H1_STYLE)
-    result.add_paragraph("KL二级标题 / H2_STYLE", style=H2_STYLE)
-    result.add_paragraph("KL三级标题 / H3_STYLE", style=H3_STYLE)
+    result.add_paragraph("DS主标题 / MAIN_STYLE", style=MAIN_STYLE)
+    result.add_paragraph("DS一级标题 / H1_STYLE", style=H1_STYLE)
+    result.add_paragraph("DS二级标题 / H2_STYLE", style=H2_STYLE)
+    result.add_paragraph("DS三级标题 / H3_STYLE", style=H3_STYLE)
     result.add_paragraph(
-        "KL正文 / BODY_STYLE：这是正文段落示例，用来说明普通内容排版。",
+        "DS正文 / BODY_STYLE：这是正文段落示例，用来说明普通内容排版。",
         style=BODY_STYLE,
     )
-    result.add_paragraph("下面是 KL图片 / IMAGE_STYLE 对应的图片段落：", style=BODY_STYLE)
+    result.add_paragraph("下面是 DS图片 / IMAGE_STYLE 对应的图片段落：", style=BODY_STYLE)
     result.add_image(str(IMAGE_PATH), width_cm=6.0, align="center", style=IMAGE_STYLE)
-    result.add_paragraph("下面是 KL题注 / CAPTION_STYLE 对应的题注：", style=BODY_STYLE)
+    result.add_paragraph("下面是 DS题注 / CAPTION_STYLE 对应的题注：", style=BODY_STYLE)
     result.add_figure_caption_auto("样式示例图片", style=CAPTION_STYLE)
-    result.add_paragraph("下面是 KL表格表头 / KL表格文字 样式示例：", style=BODY_STYLE)
+    result.add_paragraph("下面是 DS表格表头 / DS表格文字 样式示例：", style=BODY_STYLE)
     result.add_table(
         [
             ["样式名", "对象", "说明"],
-            ["KL表格表头", "TABLE_HEADER_STYLE", "用于表头单元格"],
-            ["KL表格文字", "TABLE_BODY_STYLE", "用于表体单元格"],
+            ["DS表格表头", "TABLE_HEADER_STYLE", "用于表头单元格"],
+            ["DS表格文字", "TABLE_BODY_STYLE", "用于表体单元格"],
         ],
         header_style=TABLE_HEADER_STYLE,
         body_style=TABLE_BODY_STYLE,
@@ -58,7 +58,7 @@ def main() -> Path:
     )
     result.add_table_caption_auto("表格样式示例", style=CAPTION_STYLE)
     result.add_paragraph(
-        "KL页眉 / HEADER_STYLE 与 KL页脚 / FOOTER_STYLE 不属于正文容器内容，"
+        "DS页眉 / HEADER_STYLE 与 DS页脚 / FOOTER_STYLE 不属于正文容器内容，"
         "会在 render 后通过 write_header_footer() 演示。",
         style=BODY_STYLE,
     )

@@ -29,3 +29,8 @@ venv/
 # OS
 .DS_Store
 Thumbs.db
+
+# Local Studio acceptance state and browser captures
+/.local-acceptance-data/
+/.playwright-mcp/
+/evidence/

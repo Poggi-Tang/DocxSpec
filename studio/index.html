@@ -186,7 +186,7 @@
       padding: 48px 60px;
       box-shadow: 0 1px 8px #23365112;
       color: #10151c;
-      font-family: "Noto Serif CJK SC", serif;
+      font-family: "宋体", serif;
       line-height: 1.65;
     }
     .paper h1 {
@@ -615,10 +615,18 @@
         <i class="ph ph-arrow-u-up-right"></i></button
       ><span class="sep"></span
       ><select id="style-top" aria-label="段落样式">
+        <option>DS表格文字</option>
         <option>DS正文</option>
         <option>DS一级标题</option>
-        <option>DS表格文字</option></select
+        <option>DS二级标题</option>
+        <option>DS三级标题</option>
+        <option>DS四级标题</option>
+        <option>DS五级标题</option>
+        <option>DS六级标题</option>
+        <option>DS题注</option>
+        <option>DS图片</option></select
       ><select id="font-size" aria-label="字号" style="width: 90px">
+        <option>14</option>
         <option>15</option>
         <option>16</option>
         <option>18</option>
@@ -673,9 +681,16 @@
             </select></label
           ><label
             >段落样式<select id="style-side">
+              <option>DS表格文字</option>
               <option>DS正文</option>
               <option>DS一级标题</option>
-              <option>DS表格文字</option>
+              <option>DS二级标题</option>
+              <option>DS三级标题</option>
+              <option>DS四级标题</option>
+              <option>DS五级标题</option>
+              <option>DS六级标题</option>
+              <option>DS题注</option>
+              <option>DS图片</option>
             </select></label
           ><label
             >空数据时<select id="empty">
@@ -695,11 +710,12 @@
               type="number"
               min="12"
               max="28"
-              value="15" /></label
+              value="14" /></label
           ><label
             >行间距<select id="line-height">
+              <option selected>1</option>
               <option>1.5</option>
-              <option selected>1.65</option>
+              <option>1.65</option>
               <option>2</option>
             </select></label
           ><label

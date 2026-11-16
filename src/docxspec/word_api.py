@@ -29,6 +29,7 @@ from docx.shared import Cm, Pt, RGBColor
 from docxtpl import DocxTemplate
 from PIL import Image
 
+from .template_styles import ensure_ds_styles
 from .word_styles import (
     BODY_STYLE,
     CAPTION_STYLE,
@@ -132,13 +133,13 @@ class DocContainer:
         """添加主标题。
 
         :param text: 标题文本
-        :param style: 可选的文本样式，默认使用 KL主标题 样式
+        :param style: 可选的文本样式，默认使用 DS主标题 样式
         :return: 当前容器实例，支持链式调用
         """
         self.api.add_paragraph(
             self.subdoc,
             text,
-            style or make_text_style(style_name="KL主标题"),
+            style or make_text_style(style_name="DS主标题"),
         )
         return self
 
@@ -157,12 +158,12 @@ class DocContainer:
         """
         if style is None:
             style = {
-                1: make_text_style(style_name="KL一级标题"),
-                2: make_text_style(style_name="KL二级标题"),
-                3: make_text_style(style_name="KL三级标题"),
-                4: make_text_style(style_name="KL四级标题"),
-                5: make_text_style(style_name="KL五级标题"),
-                6: make_text_style(style_name="KL六级标题"),
+                1: make_text_style(style_name="DS一级标题"),
+                2: make_text_style(style_name="DS二级标题"),
+                3: make_text_style(style_name="DS三级标题"),
+                4: make_text_style(style_name="DS四级标题"),
+                5: make_text_style(style_name="DS五级标题"),
+                6: make_text_style(style_name="DS六级标题"),
             }.get(level, BODY_STYLE)
         self.api.add_paragraph(self.subdoc, text, style)
         return self
@@ -344,6 +345,7 @@ class WordAPI:
             raise FileNotFoundError(f"模板不存在: {template_path}")
         self.template_path = str(template_path)
         self.doc = DocxTemplate(self.template_path)
+        ensure_ds_styles(self.doc.get_docx())
 
     def new_container(self) -> DocContainer:
         """创建新的子文档容器。
@@ -584,10 +586,12 @@ class WordAPI:
         """
         if not style_name:
             return
-        try:
+        styles = paragraph.part.package.main_document_part.document.styles
+        if style_name in styles:
             paragraph.style = style_name
-        except Exception:
-            return
+        elif style_name.startswith("DS") and "KL" + style_name[2:] in styles:
+            # Existing user templates may still use the former prefix.
+            paragraph.style = "KL" + style_name[2:]
 
     @staticmethod
     def _apply_paragraph_direct_format(
@@ -1045,11 +1049,11 @@ class WordAPI:
         row_count = len(data)
         table_style = table_style or make_table_style()
         header_style = header_style or make_cell_style(
-            paragraph_style_name="KL表格表头",
+            paragraph_style_name="DS表格表头",
             align="center",
         )
         body_style = body_style or make_cell_style(
-            paragraph_style_name="KL表格文字",
+            paragraph_style_name="DS表格文字",
             align="left",
         )
 
@@ -1344,9 +1348,11 @@ class WordAPI:
             if reset_sequence
             else rf"SEQ {seq_name} \* ARABIC \s 1"
         )
+        styles = self.doc.get_docx().styles
+        heading = "DS一级标题" if "DS一级标题" in styles else "KL一级标题"
         parts: list[PartConfig] = [
             {"type": "text", "value": f"{label} "},
-            {"type": "field", "code": r"STYLEREF KL一级标题 \n \* MERGEFORMAT "},
+            {"type": "field", "code": rf"STYLEREF {heading} \n \* MERGEFORMAT "},
             {"type": "text", "value": "-"},
             {"type": "field", "code": sequence_code},
         ]
@@ -1398,6 +1404,7 @@ class WordAPI:
         if output_dir:
             os.makedirs(output_dir, exist_ok=True)
 
+        ensure_ds_styles(self.doc.get_docx())
         self.doc.render(context)
         self.doc.save(output_path)
 

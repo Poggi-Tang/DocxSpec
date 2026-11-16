@@ -575,7 +575,7 @@ class TestWordAPIAllInOne:
         )
         assert paragraph is not None
         xml = paragraph._element.xml
-        assert r"STYLEREF KL一级标题 \n \* MERGEFORMAT " in xml
+        assert r"STYLEREF DS一级标题 \n \* MERGEFORMAT " in xml
         assert r"SEQ 图 \* ARABIC \s 1" in xml
         assert "系统架构图" in xml
 
@@ -600,7 +600,7 @@ class TestWordAPIAllInOne:
         )
         assert paragraph is not None
         xml = paragraph._element.xml
-        assert r"STYLEREF KL一级标题 \n \* MERGEFORMAT " in xml
+        assert r"STYLEREF DS一级标题 \n \* MERGEFORMAT " in xml
         assert r"SEQ 表 \* ARABIC \s 1" in xml
         assert "数据统计表" in xml
 
@@ -924,3 +924,78 @@ class TestWordAPIAllInOne:
 
         print(f"\\n示例文档已生成: {final_path}")
         assert os.path.exists(final_path)
+
+
+def test_builtin_ds_template_inherits_all_six_heading_styles():
+    from docxspec import DEFAULT_MASTER_TEMPLATE
+
+    api = WordAPI(str(DEFAULT_MASTER_TEMPLATE))
+    container = api.new_container()
+    for level, label in enumerate("一二三四五六", 1):
+        container.add_heading(f"第{level}级示例", level=level)
+        paragraph = container.subdoc.paragraphs[-1]
+        assert paragraph.style.name == f"DS{label}级标题"
+        assert paragraph.runs[0].font.name is None
+        assert paragraph.runs[0].font.size is None
+    container.add_table_caption_auto("示例表")
+    assert "STYLEREF DS一级标题" in container.subdoc.paragraphs[-1]._p.xml
+    assert container.subdoc.paragraphs[-1].style.name == "DS题注"
+
+
+def test_exports_embed_unused_ds_styles_with_valid_dependencies(tmp_path):
+    from docx.enum.style import WD_STYLE_TYPE
+
+    from docxspec import DEFAULT_MASTER_TEMPLATE
+
+    template = tmp_path / "custom.docx"
+    source = Document()
+    source.add_paragraph("{{p result}}")
+    # Deliberately collide with the master's numeric style IDs.
+    source.styles.add_style("Caller style", WD_STYLE_TYPE.PARAGRAPH).element.set(
+        qn("w:styleId"), "27"
+    )
+    source.save(template)
+    original = template.read_bytes()
+    api = WordAPI(str(template))
+    block = api.new_container()
+    block.add_paragraph("报告正文")
+    output = tmp_path / "report.docx"
+    api.render({"result": block.subdoc}, str(output))
+    doc = Document(output)
+    master = Document(DEFAULT_MASTER_TEMPLATE)
+    expected = {style.name for style in master.styles if style.name.startswith("DS")}
+    assert len(expected) == 17
+    assert expected <= {style.name for style in doc.styles}
+    assert doc.styles["Caller style"].style_id == "27"
+    assert doc.styles["DS一级标题"].style_id != "27"
+    for style in doc.styles:
+        for reference in style.element.xpath("./w:basedOn|./w:next|./w:link"):
+            assert doc.styles.element.get_by_id(reference.get(qn("w:val"))) is not None
+    heading = doc.styles["DS六级标题"]
+    num_id = heading.element.xpath(".//w:numId")[0].val
+    numbering = doc.part.numbering_part.element
+    num = numbering.xpath(f'./w:num[@w:numId="{num_id}"]')[0]
+    abstract_id = num.find(qn("w:abstractNumId")).get(qn("w:val"))
+    abstract = numbering.xpath(f'./w:abstractNum[@w:abstractNumId="{abstract_id}"]')[0]
+    assert list(abstract.iter(qn("w:pStyle")))
+    assert doc.styles["DS表格文字"].font.name == master.styles["DS表格文字"].font.name
+    assert template.read_bytes() == original
+    # Rendering twice reloads docxtpl's original file; the library must reattach styles.
+    api.render({"result": "再次生成"}, str(output))
+    assert expected <= {style.name for style in Document(output).styles}
+
+
+def test_field_probe_carries_ds_library_without_refreshing_stale_caches(tmp_path):
+    import runpy
+    from zipfile import ZipFile
+
+    probe = runpy.run_path(str(Path(__file__).parents[1] / "studio" / "make_field_probe.py"))
+    probe["main"].__globals__["__file__"] = str(tmp_path / "make_field_probe.py")
+    probe["main"]()
+    output = tmp_path / "evidence" / "acceptance" / "field-probe.docx"
+    doc = Document(output)
+    assert len([style for style in doc.styles if style.name.startswith("DS")]) == 17
+    assert doc.sections[0].footer.paragraphs[0].style.name == "DS页脚"
+    with ZipFile(output) as package:
+        assert b"STALE TOC" in package.read("word/document.xml")
+        assert b"999" in package.read("word/footer1.xml")

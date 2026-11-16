@@ -2,15 +2,17 @@
 
 import json
 from pathlib import Path
+import os
 from playwright.sync_api import sync_playwright
 
 root = Path(__file__).resolve().parent
+base_url = os.environ.get("STUDIO_URL", "http://127.0.0.1:4175").rstrip("/")
 with sync_playwright() as p:
     browser = p.chromium.launch(
-        executable_path="/usr/bin/chromium", headless=True, args=["--no-sandbox"]
+        executable_path=os.environ.get("STUDIO_BROWSER_PATH"), headless=True, args=["--no-sandbox"]
     )
     page = browser.new_page()
-    page.goto("http://127.0.0.1:4175/")
+    page.goto(base_url + "/")
     page.wait_for_function(
         "document.querySelector('#save-status').textContent!=='尚未保存到模板库'"
     )
@@ -37,9 +39,9 @@ with sync_playwright() as p:
     page.wait_for_function(
         "document.querySelector('#section-text')?.textContent==='未失焦封面正文'"
     )
-    records = page.request.get("http://127.0.0.1:4175/api/templates").json()
+    records = page.request.get(base_url + "/api/templates").json()
     assert records
-    record = page.request.get("http://127.0.0.1:4175/api/templates/" + records[0]["id"]).json()
+    record = page.request.get(base_url + "/api/templates/" + records[0]["id"]).json()
     data = record["document"]
     data["cases"] = data["cases"][:1]
     # Test maximum supported number of cases, with plain text and no media.
@@ -57,11 +59,11 @@ with sync_playwright() as p:
     data["selected"] = 0
     data["source"] = "测试用例"
     data["repeat"] = "每条记录"
-    response = page.request.post("http://127.0.0.1:4175/api/render", data=data, timeout=60000)
+    response = page.request.post(base_url + "/api/render", data=data, timeout=60000)
     assert response.status == 200
     (root / "evidence/acceptance/100-cases.docx").write_bytes(response.body())
     data["cases"].append(data["cases"][0])
-    assert page.request.post("http://127.0.0.1:4175/api/render", data=data).status == 400
+    assert page.request.post(base_url + "/api/render", data=data).status == 400
     browser.close()
 print(
     "PASS: unblurred edits survive reload, undo/redo, chapter text, 100-case DOCX and 101-case rejection"

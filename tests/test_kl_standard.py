@@ -210,10 +210,10 @@ def test_default_master_template_is_packaged() -> None:
     report = check_word_standard(DEFAULT_MASTER_TEMPLATE)
     assert report["required_styles_ok"] is True
     style_names = report["found_styles"]
-    assert "KL四级标题" in style_names
-    assert "KL五级标题" in style_names
-    assert "KL六级标题" in style_names
-    assert "KL其他标题" not in style_names
+    assert "DS四级标题" in style_names
+    assert "DS五级标题" in style_names
+    assert "DS六级标题" in style_names
+    assert "DS其他标题" not in style_names
 
 
 def test_build_standard_docx_from_body_document(tmp_path: Path) -> None:
@@ -263,7 +263,7 @@ def test_existing_caption_text_is_rebuilt_with_standard_fields(tmp_path: Path) -
     xml = caption._p.xml
 
     assert report["captions_standardized"]
-    assert "STYLEREF KL一级标题" in xml
+    assert "STYLEREF DS一级标题" in xml
     assert r"SEQ 表 \* ARABIC \r 1" in xml
     assert "非标准表题注" in caption.text
     assert len([paragraph for paragraph in result.paragraphs if "非标准表题注" in paragraph.text]) == 1
@@ -456,7 +456,7 @@ def test_build_standard_docx_can_skip_source_front_matter_when_requested(tmp_pat
     assert report["source_front_matter"]["detected"] is True
     assert report["source_front_matter"]["body_start_block"] > 0
     assert "文件编号：KL-JS-001" in output_text
-    assert "KL-JS-PCXX-XX" not in output_text
+    assert "DS-JS-PCXX-XX" not in output_text
     assert "创建" not in output_text
     assert "图注1" not in output_text
     assert "表注1" not in output_text

@@ -7,40 +7,10 @@ const escape = (s) =>
         c
       ],
   );
-let state = {
-  section: 2,
-  sections: ["封面", "测试概况", "测试明细", "问题汇总", "结论"],
-  intro:
-    "本章节按测试用例详细记录各项测试的执行情况，包括测试步骤、预期结果、实际结果、测试结论及相关截图。",
-  source: "测试用例",
-  repeat: "每条记录",
-  empty: "隐藏区块",
-  selected: 0,
-  cases: [
-    {
-      id: "TC-001",
-      name: "登录功能测试",
-      steps: [
-        "打开系统登录页面；",
-        "输入有效的用户名和密码；",
-        "点击“登录”按钮。",
-      ],
-      expected: "系统进入首页，显示当前用户信息。",
-      actual: "系统成功登录，进入首页。",
-      result: "通过",
-    },
-    {
-      id: "TC-002",
-      name: "异常密码校验",
-      steps: ["输入错误密码；", "点击登录。"],
-      expected: "显示用户名或密码错误。",
-      actual: "错误提示正常显示。",
-      result: "通过",
-    },
-  ],
-  format: {},
-  texts: {},
-};
+let state;
+let masterTemplate;
+let wordRefreshEnabled = false;
+
 let history = [],
   future = [];
 function commit(fn, redraw = true) {
@@ -61,22 +31,21 @@ function notify(t) {
   );
 }
 function fmt(i) {
-  return (
-    state.format[i] || {
-      size: 15,
-      line: "1.65",
-      color: "#f2f4f8",
-      style: "DS正文",
-      bold: false,
-      italic: false,
-      center: false,
-    }
-  );
+  return {
+    size: 14,
+    line: "1",
+    color: "#f2f4f8",
+    style: "DS表格文字",
+    bold: false,
+    italic: false,
+    center: false,
+    ...state.format[i],
+  };
 }
 function changeFormat(key, val) {
   commit(
     () =>
-      (state.format[state.selected] = { ...fmt(state.selected), [key]: val }),
+      (state.format[state.selected] = { ...state.format[state.selected], [key]: val }),
   );
 }
 function caseHTML(c, i, preview = false) {
@@ -96,24 +65,56 @@ function cases(preview) {
         ? ""
         : '<div class="empty-section">当前数据源没有记录，生成时将隐藏区块。请修改样例数据。</div>';
 }
+function caseSection() {
+  return state.section_meta ? state.section_meta.findIndex((entry) => entry.kind === "cases") : 2;
+}
+function sectionNumber(index) {
+  if (!state.section_meta) return String(index + 1);
+  const counts = [0, 0, 0, 0, 0, 0];
+  for (let i = 0; i <= index; i++) {
+    const level = state.section_meta[i].level;
+    if (!level) continue;
+    counts[level - 1]++;
+    counts.fill(0, level);
+  }
+  const level = state.section_meta[index].level;
+  return level ? counts.slice(0, level).join(".") : "";
+}
+function templateTable(rows) {
+  return `<table><tbody>${rows.map((row) => `<tr>${row.map((cell) => `<td>${escape(cell)}</td>`).join("")}</tr>`).join("")}</tbody></table>`;
+}
 function content(preview = false) {
-  let section = state.sections[state.section];
-  if (state.section === 2)
-    return `<h1>3　${escape(section)}</h1><p ${preview ? "" : 'contenteditable="true" class="editable" id="intro" aria-label="章节说明"'}>${escape(state.intro)}</p>${cases(preview)}`;
+  const section = state.sections[state.section];
+  const entry = state.section_meta?.[state.section];
+  const number = sectionNumber(state.section);
+  const title = `<h1>${escape(number)}${number ? "　" : ""}${escape(section)}</h1>`;
+  if (entry && ["toc", "figures", "tables"].includes(entry.kind)) {
+    const items = entry.kind === "toc"
+      ? state.sections.map((text, index) => ({ text, index })).filter(({ index }) => state.section_meta[index].level)
+      : state.cases.map((item) => ({ text: entry.kind === "figures" ? `${item.name}截图` : item.name }))
+          .filter((_, index) => entry.kind !== "figures" || state.cases[index].image);
+    return title + '<p class="hint">目录由 Word 域生成，页码以导出的文档为准。</p>' + items.map(({ text, index }) =>
+      `<p style="margin-left:${index === undefined ? 0 : (state.section_meta[index].level - 1) * 16}px">${index === undefined ? "" : escape(sectionNumber(index)) + "　"}${escape(text)}</p>`).join("");
+  }
+  if (entry?.kind === "revision")
+    return title + '<p class="hint">沿用内置母版的修改记录表。</p>' + templateTable(masterTemplate.revision_rows);
+  if (state.section === caseSection())
+    return title + `<p ${preview ? "" : 'contenteditable="true" class="editable" id="intro" aria-label="章节说明"'}>${escape(state.intro)}</p>${cases(preview)}`;
   const defaults = [
     "测试报告\n产品名称：示例系统\n报告版本：V1.0",
-    "测试环境：桌面浏览器\n测试范围：登录与权限校验",
-    "",
-    "暂无待处理问题。",
+    "测试环境：桌面浏览器\n测试范围：登录与权限校验", "", "暂无待处理问题。",
     "本轮测试完成，结果详见测试明细。",
   ];
-  return `<h1>${state.section + 1}　${escape(section)}</h1><p ${preview ? "" : 'contenteditable="true" class="editable" id="section-text" aria-label="章节内容"'} style="white-space:pre-wrap;margin-top:35px">${escape(state.texts[state.section] ?? defaults[state.section] ?? "点击此处编写章节内容。")}</p>`;
+  const text = state.texts[state.section] ?? (entry ? "" : defaults[state.section]) ?? "";
+  return title + (entry?.kind === "cover" ? `<p>${escape(masterTemplate.file_number)}</p>` : "") +
+    `<p ${preview ? "" : 'contenteditable="true" class="editable" id="section-text" aria-label="章节内容"'} style="white-space:pre-wrap;margin-top:35px">${escape(text)}</p>` +
+    (entry?.kind === "cover" ? templateTable(masterTemplate.signature_rows) : "");
 }
 function render() {
   $("nav-items").innerHTML = state.sections
     .map(
       (s, i) =>
-        `<button class="nav ${i === state.section ? "selected" : ""}" data-nav="${i}"><i class="ph ph-file"></i>${escape(s)}</button>`,
+        `<button class="nav ${i === state.section ? "selected" : ""}" data-nav="${i}" style="padding-left:${12 + Math.max(0, (state.section_meta?.[i].level || 1) - 1) * 12}px"><i class="ph ph-file"></i>${escape(s)}</button>`,
     )
     .join("");
   $("paper").innerHTML = content();
@@ -255,7 +256,7 @@ document.querySelectorAll("[data-tab]").forEach(
 );
 $("add-case").onclick = () =>
   commit(() => {
-    state.section = 2;
+    state.section = caseSection();
     state.cases.push({
       id: "TC-" + String(state.cases.length + 1).padStart(3, "0"),
       name: "新测试项",
@@ -285,6 +286,7 @@ $("confirm-section").onclick = () => {
   }
   commit(() => {
     state.sections.push(n);
+    state.section_meta?.push({ kind: "heading", level: 1 });
     state.section = state.sections.length - 1;
   });
   $("section-dialog").close();
@@ -312,7 +314,7 @@ $("properties").onclick = () => {
 let current = null,
   savedSnapshot = "",
   draftError = false;
-const draftKey = "docxspec-studio-draft-v1";
+const draftKey = "docxspec-studio-master-draft-v1";
 const documentData = () => ({ schema: "docxspec-studio-v1", ...state });
 function stable(value) {
   if (Array.isArray(value)) return value.map(stable);
@@ -533,7 +535,7 @@ $("generate").onclick = async () => {
   try {
     const response = await api("/api/render", documentData());
     download(await response.blob(), "docxspec-report.docx");
-    notify("DOCX 已生成；域已标记为打开时更新，未执行 Word/WPS 刷新");
+    notify(wordRefreshEnabled ? "DOCX 已生成，Word 域刷新已完成" : "DOCX 已生成；域已标记为打开时更新，未执行 Word/WPS 刷新");
   } catch (e) {
     notify("生成失败：" + e.message);
   } finally {
@@ -542,8 +544,12 @@ $("generate").onclick = async () => {
   }
 };
 async function boot() {
-  render();
   try {
+    masterTemplate = await (await api("/api/master")).json();
+    state = masterTemplate.document;
+    const health = await (await api("/api/health")).json();
+    wordRefreshEnabled = health.refresh_fields;
+    render();
     const draft = JSON.parse(localStorage.getItem(draftKey) || "null");
     if (draft) {
       state = await (await api("/api/validate", draft.document)).json();
@@ -551,7 +557,7 @@ async function boot() {
       savedSnapshot = draft.savedSnapshot || "";
       render();
       notify("已恢复本机草稿");
-    } else await api("/api/health");
+    }
     status();
   } catch (e) {
     $("save-status").textContent = "服务不可用或草稿恢复失败";

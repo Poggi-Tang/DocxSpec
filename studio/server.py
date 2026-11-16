@@ -7,6 +7,7 @@ import os
 import sqlite3
 import sys
 import uuid
+from contextlib import closing
 from datetime import UTC, datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -14,6 +15,7 @@ from urllib.parse import urlsplit
 
 ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(ROOT.parent / "src"))
+from master import master_document  # noqa: E402
 from model import validate  # noqa: E402
 from renderer import render_docx  # noqa: E402
 
@@ -28,7 +30,7 @@ class Store:
     def __init__(self, path):
         self.path = path
         path.parent.mkdir(parents=True, exist_ok=True)
-        with self.connect() as db:
+        with closing(self.connect()) as db, db:
             db.execute(
                 "CREATE TABLE IF NOT EXISTS templates (id TEXT PRIMARY KEY, "
                 "name TEXT NOT NULL, version INTEGER NOT NULL, updated TEXT NOT NULL, "
@@ -41,7 +43,7 @@ class Store:
         return db
 
     def list(self):
-        with self.connect() as db:
+        with closing(self.connect()) as db, db:
             return [
                 dict(r)
                 for r in db.execute(
@@ -50,7 +52,7 @@ class Store:
             ]
 
     def get(self, key):
-        with self.connect() as db:
+        with closing(self.connect()) as db, db:
             row = db.execute("SELECT * FROM templates WHERE id=?", (key,)).fetchone()
             if row is None:
                 raise KeyError(key)
@@ -67,7 +69,7 @@ class Store:
         if key is not None and (not isinstance(key, str) or len(key) != 32):
             raise ValueError("模板 ID 无效")
         stamp = datetime.now(UTC).isoformat()
-        with self.connect() as db:
+        with closing(self.connect()) as db, db:
             db.execute("BEGIN IMMEDIATE")
             if key:
                 old = db.execute("SELECT version FROM templates WHERE id=?", (key,)).fetchone()
@@ -126,6 +128,9 @@ class Handler(BaseHTTPRequestHandler):
             return
         path = urlsplit(self.path).path
         try:
+            if path == "/api/master":
+                self.reply(200, master_document())
+                return
             if path == "/api/templates":
                 self.reply(200, self.server.store.list())
                 return
@@ -134,7 +139,8 @@ class Handler(BaseHTTPRequestHandler):
                 return
             if path == "/api/health":
                 self.reply(
-                    200, {"engine": "DocxSpec", "storage": "sqlite", "schema": "docxspec-studio-v1"}
+                    200, {"engine": "DocxSpec", "storage": "sqlite", "schema": "docxspec-studio-v1",
+                          "refresh_fields": getattr(self.server, "refresh_fields", False)}
                 )
                 return
             # Never expose database, source code, arbitrary paths or directory listings.
@@ -177,7 +183,9 @@ class Handler(BaseHTTPRequestHandler):
             elif path == "/api/render":
                 self.reply(
                     200,
-                    render_docx(data),
+                    render_docx(
+                        data, refresh_fields=getattr(self.server, "refresh_fields", False)
+                    ),
                     "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
                     "docxspec-report.docx",
                 )
@@ -204,9 +212,15 @@ def main():
         type=Path,
         default=Path(os.environ.get("DOCXSPEC_STUDIO_DATA", ROOT / ".data")),
     )
+    parser.add_argument(
+        "--refresh-fields",
+        action="store_true",
+        help="Refresh actual DOCX field caches using local Microsoft Word (requires pywin32)",
+    )
     args = parser.parse_args()
     server = ThreadingHTTPServer(("127.0.0.1", args.port), Handler)
     server.store = Store(args.data_dir / "studio.sqlite3")
+    server.refresh_fields = args.refresh_fields
     print(f"DocxSpec Studio: http://127.0.0.1:{args.port}", flush=True)
     try:
         server.serve_forever()

@@ -205,6 +205,21 @@ def refresh_fields_with_word(docx_path: str | Path, *, visible: bool = False) ->
         for tof in doc.TablesOfFigures:
             tof.Update()
 
+        # Rebuilding directories can change pagination. Refresh story fields
+        # again so page totals include the newly expanded directory pages.
+        doc.Repaginate()
+        for story in doc.StoryRanges:
+            current = story
+            while current is not None:
+                result = current.Fields.Update()
+                if result not in (None, 0):
+                    raise RuntimeError(f"Story field update failed at field {result}")
+                current = current.NextStoryRange
+        for toc in doc.TablesOfContents:
+            toc.UpdatePageNumbers()
+        for tof in doc.TablesOfFigures:
+            tof.UpdatePageNumbers()
+
         doc.Save()
         return True
     finally:
