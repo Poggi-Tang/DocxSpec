@@ -6,6 +6,7 @@ from zipfile import ZipFile
 
 import pytest
 from docx import Document
+from lxml import etree
 from PIL import Image
 
 from docxspec.report import (
@@ -79,12 +80,20 @@ def test_portable_bundle_matches_direct_render(tmp_path):
     portable = render_report(bundle, data, tmp_path / "portable.docx")
     with ZipFile(direct) as expected, ZipFile(portable) as actual:
         for member in (
+            "docProps/core.xml",
             "word/document.xml",
             "word/styles.xml",
             "word/header1.xml",
             "word/footer1.xml",
         ):
             assert actual.read(member) == expected.read(member)
+        core = etree.fromstring(actual.read("docProps/core.xml"))
+        modifiers = core.xpath("./*[local-name()='lastModifiedBy']")
+        assert len(modifiers) == 1
+        assert modifiers[0].tag == (
+            "{http://schemas.openxmlformats.org/package/2006/metadata/core-properties}lastModifiedBy"
+        )
+        assert modifiers[0].text == "DocxSpec"
 
     result = Document(portable)
     assert [p.text for p in result.paragraphs] == [

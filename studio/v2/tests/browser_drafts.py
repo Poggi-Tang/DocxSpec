@@ -1,4 +1,4 @@
-"""Browser coverage for divergent local drafts and copying while a save is in flight."""
+"""Browser coverage for local drafts, version conflicts and interrupted saves."""
 
 import asyncio
 import json
@@ -41,6 +41,7 @@ async def recover(page, phrase):
 async def divergent_tabs(browser, client):
     owner = await add_set(client, "多标签页草稿")
     template = await add_template(client, owner, "分支模板")
+    target = await add_template(client, owner, "尝试切换的模板")
     url = "templates/" + template["id"]
     async with editor_page(browser, owner, template) as first:
         context = first.context
@@ -58,8 +59,19 @@ async def divergent_tabs(browser, client):
         await page.get_by_role("button", name="保存", exact=True).click()
         await expect(page.locator(".document-bar .badge").first).to_have_text("v2")
         await recover(page, "第一个标签的文本")
-        await page.get_by_role("button", name="保存", exact=True).click()
-        await expect(page.get_by_role("alert")).to_contain_text("模板已被其他窗口修改")
+        stale_notice = page.get_by_text("已恢复旧版本草稿，可用“复制模板”保留当前编辑。")
+        await expect(stale_notice).to_be_visible()
+        async with page.expect_response(
+            lambda response: (
+                response.request.method == "PUT" and response.url.endswith("/api/v2/" + url)
+            )
+        ) as rejected:
+            await page.get_by_role("button", name=target["name"], exact=True).click()
+        assert (await rejected.value).status == 409
+        await expect(page.get_by_role("alert")).to_contain_text("模板已有更新版本")
+        await expect(stale_notice).to_have_count(0)
+        await expect(page.locator(".document-bar strong")).to_have_text(template["name"])
+        await expect(header(page)).to_have_value("第一个标签的文本")
         assert (await api(client, url))["document"]["header"] == "第二个标签的文本"
         await page.get_by_role("button", name="复制模板", exact=True).click()
         await expect(page.locator(".document-bar strong")).to_have_text(
@@ -152,6 +164,67 @@ async def copy_during_save(browser, client):
     print("the pending original save advances the recovered draft before switching to its copy")
 
 
+async def retry_own_save_after_lost_response(browser, client):
+    owner = await add_set(client, "保存确认中断")
+    template = await add_template(client, owner, "重试自己的保存")
+    path = "templates/" + template["id"]
+    request_path = "/api/v2/" + path
+    async with editor_page(browser, owner, template) as page:
+        await header(page).fill("确认中断时已写入服务器的内容")
+        page.once("dialog", lambda dialog: dialog.accept())
+        await page.reload()
+        await page.get_by_role("button", name=owner["name"], exact=True).click()
+        await open_template(page, template["name"])
+        await expect(
+            page.get_by_text("已恢复本机未保存草稿，请核对后保存", exact=True)
+        ).to_be_visible()
+        save = page.get_by_role("button", name="保存", exact=True)
+
+        async def drop_ack(route):
+            if route.request.method != "PUT":
+                await route.continue_()
+                return
+            await route.fetch()
+            await route.abort("failed")
+
+        await page.route("**" + request_path, drop_ack)
+        try:
+            await save.click()
+            await expect(page.get_by_role("alert")).to_be_visible()
+            await expect(save).to_be_enabled()
+            await expect(
+                page.get_by_text("已恢复本机未保存草稿，请核对后保存", exact=True)
+            ).to_have_count(0)
+        finally:
+            await page.unroute("**" + request_path, drop_ack)
+        committed = await api(client, path)
+        assert committed["version"] == 2
+        assert committed["document"]["header"] == "确认中断时已写入服务器的内容"
+        await expect(page.locator(".document-bar .badge").first).to_have_text("v1")
+
+        async with page.expect_response(
+            lambda response: (
+                response.request.method == "PUT" and response.url.endswith(request_path)
+            )
+        ) as retry:
+            await save.click()
+        response = await retry.value
+        assert response.status == 200, await response.text()
+        await expect(page.locator(".document-bar .badge").first).to_have_text("v2")
+        await expect(page.locator(".save-state")).to_contain_text("已保存")
+        await expect(page.get_by_role("alert")).to_have_count(0)
+        await expect(
+            page.get_by_text("已恢复本机未保存草稿，请核对后保存", exact=True)
+        ).to_have_count(0)
+        assert [item["version"] for item in await api(client, path + "/versions")] == [2, 1]
+        assert await page.evaluate(
+            "id => !Object.keys(localStorage)"
+            ".some(key => key.startsWith('ds-draft-v2:' + id + ':'))",
+            template["id"],
+        )
+    print("retrying after a lost save response confirms v2 without creating v3")
+
+
 async def main():
     async with async_playwright() as playwright:
         browser = await playwright.chromium.launch(
@@ -164,6 +237,7 @@ async def main():
             await legacy_draft(browser, client)
             await recovered_source_isolated(browser, client)
             await copy_during_save(browser, client)
+            await retry_own_save_after_lost_response(browser, client)
         finally:
             await browser.close()
 

@@ -378,8 +378,14 @@ function App() {
         if (!results.every(Boolean)) return false;
         continue;
       }
-      if (action === "save" && !(await editor.flush(from, isCurrent)))
-        return false;
+      if (action === "save") {
+        try {
+          if (!(await editor.flush(from, isCurrent))) return false;
+        } catch (error) {
+          if (isCurrent()) M("");
+          throw error;
+        }
+      }
       if (action === "pending-save" && from)
         await editor.waitForPendingSave(from);
       // A new upload may have started while a save was in progress.
@@ -439,6 +445,7 @@ function App() {
   async function save() {
     const key = editor.current.current?.key;
     if (!key) return;
+    M("");
     setSaving(key);
     try {
       const result = await editor.save(key);
@@ -543,7 +550,11 @@ function App() {
     setPanel("document");
     showDialog(null);
     clearPreview();
-    M("已恢复本机草稿，请核对后保存");
+    M(
+      draft.template.version === active.savedVersion
+        ? "已恢复本机草稿，请核对后保存"
+        : "已恢复旧版本草稿，可用“复制模板”保留当前编辑。",
+    );
     return true;
   }
 

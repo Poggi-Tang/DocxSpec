@@ -1,5 +1,7 @@
 """Public exports for docxspec."""
 
+from docx.oxml.ns import nsmap as _docx_nsmap
+
 from .kl_standard import (
     DEFAULT_MASTER_TEMPLATE,
     build_standard_docx,
@@ -31,7 +33,11 @@ from .word_styles import (
     make_table_style,
 )
 
-__version__ = "0.1.0"
+# docxcompose registers its custom-properties prefix in python-docx's shared map.
+# Restore the core-properties mapping used by python-docx's metadata setters.
+_docx_nsmap["cp"] = "http://schemas.openxmlformats.org/package/2006/metadata/core-properties"
+
+__version__ = "0.1.1"
 
 __all__ = [
     "WordAPI",

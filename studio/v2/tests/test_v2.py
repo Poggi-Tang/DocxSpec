@@ -33,8 +33,11 @@ def test_storage_conflict_and_revision(tmp_path):
     body.name = "新版"
     second = store.save_template(first["id"], body)
     assert second["version"] == 2
+    assert store.save_template(first["id"], body) == second
+    body.document.header = "旧版本草稿"
     with pytest.raises(Conflict):
         store.save_template(first["id"], body)
+    assert store.get_template(first["id"]) == second
     assert store.get_revision(first["id"], 1)["name"] == "报告"
     assert len(store.revisions(first["id"])) == 2
 

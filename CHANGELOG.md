@@ -6,6 +6,16 @@ The format is based on *Keep a Changelog*, and this project adheres to *Semantic
 
 ---
 
+## [0.1.1] - 2026-11-20
+
+### Fixed
+
+* Restore the core-properties namespace after loading document composition so
+  writing the last modifier updates the existing DOCX metadata field.
+* Confirm an identical retry of an already saved Studio revision when the
+  original response was lost. Preserve divergent drafts and explain how to
+  copy them when the server has a newer revision.
+
 ## [0.1.0] - 2026-11-20
 
 ### Added

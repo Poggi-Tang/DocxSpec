@@ -942,6 +942,31 @@ def test_builtin_ds_template_inherits_all_six_heading_styles():
     assert container.subdoc.paragraphs[-1].style.name == "DS题注"
 
 
+def test_ds_template_core_and_custom_properties_keep_separate_namespaces(tmp_path):
+    from zipfile import ZipFile
+
+    from docxcompose.properties import CustomProperties
+    from lxml import etree
+
+    from docxspec import DEFAULT_MASTER_TEMPLATE
+
+    doc = Document(DEFAULT_MASTER_TEMPLATE)
+    doc.core_properties.last_modified_by = "DocxSpec"
+    CustomProperties(doc)["Report ID"] = "DS-001"
+    output = tmp_path / "report.docx"
+    doc.save(output)
+
+    with ZipFile(output) as archive:
+        core = etree.fromstring(archive.read("docProps/core.xml"))
+        modifiers = core.xpath("./*[local-name()='lastModifiedBy']")
+    assert len(modifiers) == 1
+    assert modifiers[0].tag == (
+        "{http://schemas.openxmlformats.org/package/2006/metadata/core-properties}lastModifiedBy"
+    )
+    assert modifiers[0].text == "DocxSpec"
+    assert CustomProperties(Document(output))["Report ID"] == "DS-001"
+
+
 def test_exports_embed_unused_ds_styles_with_valid_dependencies(tmp_path):
     from docx.enum.style import WD_STYLE_TYPE
 

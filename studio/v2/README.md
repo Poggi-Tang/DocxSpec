@@ -48,7 +48,7 @@ python -m studio.v2.app
 打开模板后，点击工具栏「导出模板包」。ZIP 包含当前编辑内容和引用的固定图片，包括尚未保存的模板改动。测试数据、预览和 AI 审核记录留在 Studio。生成报告时，Python 单独读取业务数据。安装与导出端匹配的 DocxSpec 版本以保留相同的 DS 母版。
 
 ```bash
-python -m pip install "docxspec[report]==0.1.0"
+python -m pip install "docxspec[report]==0.1.1"
 ```
 
 ```python

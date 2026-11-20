@@ -92,18 +92,29 @@ class Store:
     def _save_template(self, db, key, body):
         if not db.execute("SELECT id FROM sets WHERE id=?", (body.set_id,)).fetchone():
             raise KeyError("模板集不存在")
+        doc = json.dumps(body.document.model_dump(), ensure_ascii=False)
+        data = json.dumps(body.data, ensure_ascii=False)
         if key:
-            old = db.execute("SELECT version FROM templates WHERE id=?", (key,)).fetchone()
+            old = db.execute("SELECT * FROM templates WHERE id=?", (key,)).fetchone()
             if not old:
                 raise KeyError("模板不存在")
             if old["version"] != body.version:
-                raise Conflict("模板已被其他窗口修改，请另存或重新打开")
+                # The previous save may have committed before its response reached the browser.
+                if (
+                    old["version"] > 1
+                    and body.version == old["version"] - 1
+                    and not old["archived"]
+                    and old["set_id"] == body.set_id
+                    and old["name"] == body.name
+                    and old["document"] == doc
+                    and old["data"] == data
+                ):
+                    return self._template(db, key)
+                raise Conflict("模板已有更新版本。点击“复制模板”可保留当前草稿，或刷新查看服务器版本。")
             version = old["version"] + 1
         else:
             key = uid()
             version = 1
-        doc = json.dumps(body.document.model_dump(), ensure_ascii=False)
-        data = json.dumps(body.data, ensure_ascii=False)
         now = stamp()
         db.execute(
             "INSERT INTO templates VALUES(?,?,?,?,?,?,?,0) ON CONFLICT(id) DO UPDATE SET set_id=excluded.set_id,name=excluded.name,version=excluded.version,document=excluded.document,data=excluded.data,updated=excluded.updated",  # noqa: E501
