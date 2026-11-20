@@ -1,0 +1,36 @@
+.draft-recovery {
+  position: relative;
+}
+.draft-recovery summary {
+  cursor: pointer;
+}
+.draft-recovery-menu {
+  position: absolute;
+  z-index: 6;
+  right: 0;
+  top: calc(100% + 12px);
+  width: min(330px, 80vw);
+  max-height: min(420px, 65vh);
+  overflow: auto;
+  padding: 12px;
+  border: 1px solid #dbe4ee;
+  border-radius: 8px;
+  background: white;
+  box-shadow: 0 6px 24px #253a5229;
+}
+.draft-recovery-menu > p {
+  margin: 0 0 8px;
+  color: #52677f;
+}
+.draft-option {
+  border-top: 1px solid #e6edf4;
+  padding: 8px 0;
+}
+.draft-option-caption,
+.draft-option small {
+  display: block;
+}
+.draft-option-summary {
+  margin: 4px 0;
+  overflow-wrap: anywhere;
+}

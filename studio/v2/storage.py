@@ -29,6 +29,8 @@ class Store:
             CREATE TABLE IF NOT EXISTS revisions(template_id TEXT,version INTEGER,document TEXT,data TEXT,name TEXT,updated TEXT,PRIMARY KEY(template_id,version));
             CREATE TABLE IF NOT EXISTS components(id TEXT PRIMARY KEY,set_id TEXT,name TEXT,version INTEGER,node TEXT);
             CREATE TABLE IF NOT EXISTS jobs(id TEXT PRIMARY KEY,status TEXT,payload TEXT,result TEXT,error TEXT,created TEXT);
+            CREATE TABLE IF NOT EXISTS conversion_review_marks(
+                template_id TEXT NOT NULL,item_index INTEGER NOT NULL,PRIMARY KEY(template_id,item_index));
             """)
             db.execute(
                 "UPDATE jobs SET status='failed',error='服务已重启，请重新生成' WHERE status IN ('queued','compiling','rendering','analyzing')"  # noqa: E501
@@ -67,43 +69,51 @@ class Store:
                 )
             ]
 
+    @staticmethod
+    def _template(db, key):
+        row = db.execute("SELECT * FROM templates WHERE id=?", (key,)).fetchone()
+        if not row:
+            raise KeyError("模板不存在")
+        return {
+            **dict(row),
+            "document": json.loads(row["document"]),
+            "data": json.loads(row["data"]),
+        }
+
     def get_template(self, key):
         with self.db() as db:
-            r = db.execute("SELECT * FROM templates WHERE id=?", (key,)).fetchone()
-            if not r:
-                raise KeyError("模板不存在")
-            result = dict(r)
-            result["document"] = json.loads(result["document"])
-            result["data"] = json.loads(result["data"])
-            return result
+            return self._template(db, key)
 
     def save_template(self, key, body):
         with self.db() as db:
             db.execute("BEGIN IMMEDIATE")
-            if not db.execute("SELECT id FROM sets WHERE id=?", (body.set_id,)).fetchone():
-                raise KeyError("模板集不存在")
-            if key:
-                old = db.execute("SELECT version FROM templates WHERE id=?", (key,)).fetchone()
-                if not old:
-                    raise KeyError("模板不存在")
-                if old["version"] != body.version:
-                    raise Conflict("模板已被其他窗口修改，请另存或重新打开")
-                version = old["version"] + 1
-            else:
-                key = uid()
-                version = 1
-            doc = json.dumps(body.document.model_dump(), ensure_ascii=False)
-            data = json.dumps(body.data, ensure_ascii=False)
-            now = stamp()
-            db.execute(
-                "INSERT INTO templates VALUES(?,?,?,?,?,?,?,0) ON CONFLICT(id) DO UPDATE SET set_id=excluded.set_id,name=excluded.name,version=excluded.version,document=excluded.document,data=excluded.data,updated=excluded.updated",  # noqa: E501
-                (key, body.set_id, body.name, version, doc, data, now),
-            )
-            db.execute(
-                "INSERT INTO revisions VALUES(?,?,?,?,?,?)",
-                (key, version, doc, data, body.name, now),
-            )
-        return self.get_template(key)
+            return self._save_template(db, key, body)
+
+    def _save_template(self, db, key, body):
+        if not db.execute("SELECT id FROM sets WHERE id=?", (body.set_id,)).fetchone():
+            raise KeyError("模板集不存在")
+        if key:
+            old = db.execute("SELECT version FROM templates WHERE id=?", (key,)).fetchone()
+            if not old:
+                raise KeyError("模板不存在")
+            if old["version"] != body.version:
+                raise Conflict("模板已被其他窗口修改，请另存或重新打开")
+            version = old["version"] + 1
+        else:
+            key = uid()
+            version = 1
+        doc = json.dumps(body.document.model_dump(), ensure_ascii=False)
+        data = json.dumps(body.data, ensure_ascii=False)
+        now = stamp()
+        db.execute(
+            "INSERT INTO templates VALUES(?,?,?,?,?,?,?,0) ON CONFLICT(id) DO UPDATE SET set_id=excluded.set_id,name=excluded.name,version=excluded.version,document=excluded.document,data=excluded.data,updated=excluded.updated",  # noqa: E501
+            (key, body.set_id, body.name, version, doc, data, now),
+        )
+        db.execute(
+            "INSERT INTO revisions VALUES(?,?,?,?,?,?)",
+            (key, version, doc, data, body.name, now),
+        )
+        return self._template(db, key)
 
     def revisions(self, key):
         with self.db() as db:
@@ -123,6 +133,59 @@ class Store:
             if not r:
                 raise KeyError("版本不存在")
             return {**dict(r), "document": json.loads(r["document"]), "data": json.loads(r["data"])}
+
+    @staticmethod
+    def _conversion_result(db, key):
+        if not db.execute("SELECT 1 FROM templates WHERE id=?", (key,)).fetchone():
+            raise KeyError("模板不存在")
+        # Completed jobs persist the original mapping, including for existing drafts.
+        row = db.execute(
+            """SELECT result FROM jobs
+               WHERE status='ready' AND json_extract(result, '$.template_id')=?
+               ORDER BY rowid DESC LIMIT 1""",
+            (key,),
+        ).fetchone()
+        return json.loads(row["result"]) if row else None
+
+    @staticmethod
+    def _reviewed_indices(db, key):
+        return [
+            row["item_index"]
+            for row in db.execute(
+                """SELECT item_index FROM conversion_review_marks
+                   WHERE template_id=? ORDER BY item_index""",
+                (key,),
+            )
+        ]
+
+    def conversion_review(self, key):
+        with self.db() as db:
+            result = self._conversion_result(db, key)
+            if result is None:
+                return None
+            return {
+                "template_id": key,
+                "review": result.get("review", []),
+                "source_blocks": result.get("source_blocks", []),
+                "reviewed_indices": self._reviewed_indices(db, key),
+            }
+
+    def mark_conversion_review(self, key, index, reviewed):
+        with self.db() as db:
+            db.execute("BEGIN IMMEDIATE")
+            result = self._conversion_result(db, key)
+            if result is None or not 0 <= index < len(result.get("review", [])):
+                raise KeyError("审核项不存在")
+            if reviewed:
+                db.execute(
+                    "INSERT OR IGNORE INTO conversion_review_marks VALUES(?,?)", (key, index)
+                )
+            else:
+                db.execute(
+                    "DELETE FROM conversion_review_marks WHERE template_id=? AND item_index=?",
+                    (key, index),
+                )
+            return {"reviewed_indices": self._reviewed_indices(db, key)}
 
     def components(self, set_id):
         with self.db() as db:
@@ -166,6 +229,21 @@ class Store:
             db.execute(
                 "UPDATE jobs SET status=?,result=?,error=? WHERE id=? AND status<>'cancelled'",
                 (status, json.dumps(result) if result else None, error, key),
+            )
+
+    def complete_conversion_job(self, key, template_body, result):
+        """Publish the template and its review together if cancellation has not won."""
+        with self.db() as db:
+            db.execute("BEGIN IMMEDIATE")
+            job = db.execute("SELECT status FROM jobs WHERE id=?", (key,)).fetchone()
+            if job is None:
+                raise KeyError("任务不存在")
+            if job["status"] != "analyzing":
+                return
+            template = self._save_template(db, None, template_body)
+            db.execute(
+                "UPDATE jobs SET status='ready',result=?,error=NULL WHERE id=?",
+                (json.dumps({**result, "template_id": template["id"]}), key),
             )
 
     def cancel_job(self, key):

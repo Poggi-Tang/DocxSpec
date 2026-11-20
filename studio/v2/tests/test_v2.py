@@ -1,5 +1,6 @@
 import io
 import json
+import sqlite3
 import threading
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
@@ -36,6 +37,75 @@ def test_storage_conflict_and_revision(tmp_path):
         store.save_template(first["id"], body)
     assert store.get_revision(first["id"], 1)["name"] == "报告"
     assert len(store.revisions(first["id"])) == 2
+
+
+def test_conversion_completion_respects_cancellation_and_persists_review(tmp_path):
+    store = Store(tmp_path)
+    owner = store.create_set("测试模板集", "word")
+    body = TemplateInput(name="报告", set_id=owner["id"], document=DocumentModel())
+    result = {"review": [{"decision": "保留"}], "source_blocks": [{"source_id": "p0"}]}
+    cancelled = store.new_job({"kind": "conversion"})
+    store.update_job(cancelled, "analyzing")
+    store.cancel_job(cancelled)
+    store.complete_conversion_job(cancelled, body, result)
+    assert store.templates() == []
+    assert store.job(cancelled)["status"] == "cancelled"
+
+    completed = store.new_job({"kind": "conversion"})
+    store.update_job(completed, "analyzing")
+    store.complete_conversion_job(completed, body, result)
+    store.cancel_job(completed)
+    reopened = Store(tmp_path)
+    job = reopened.job(completed)
+    assert job["status"] == "ready"
+    template = reopened.get_template(job["result"]["template_id"])
+    assert template["version"] == 1
+    assert reopened.conversion_review(template["id"]) == {
+        **result,
+        "template_id": template["id"],
+        "reviewed_indices": [],
+    }
+
+
+def test_conversion_review_marks_are_validated_and_persisted(tmp_path):
+    app = create_app(tmp_path)
+    store = app.state.store
+    owner = store.create_set("审核模板集", "word")
+    body = TemplateInput(name="报告", set_id=owner["id"], document=DocumentModel())
+    job = store.new_job({"kind": "conversion"})
+    store.update_job(job, "analyzing")
+    store.complete_conversion_job(job, body, {"review": [{"decision": "保留"}]})
+    template_id = store.job(job)["result"]["template_id"]
+    path = f"/api/v2/templates/{template_id}/review"
+    with TestClient(app) as client:
+        assert client.put(path + "/1", json={"reviewed": True}).status_code == 404
+        for _ in range(2):
+            response = client.put(path + "/0", json={"reviewed": True})
+            assert response.json()["reviewed_indices"] == [0]
+        assert Store(tmp_path).conversion_review(template_id)["reviewed_indices"] == [0]
+        assert client.put(path + "/0", json={"reviewed": False}).json()["reviewed_indices"] == []
+        assert client.get(path).json()["reviewed_indices"] == []
+
+
+def test_conversion_does_not_publish_a_template_if_ready_write_fails(tmp_path):
+    store = Store(tmp_path)
+    owner = store.create_set("测试模板集", "word")
+    body = TemplateInput(name="报告", set_id=owner["id"], document=DocumentModel())
+    job = store.new_job({"kind": "conversion"})
+    store.update_job(job, "analyzing")
+    with store.db() as db:
+        db.execute("""
+            CREATE TRIGGER reject_conversion_result
+            BEFORE UPDATE ON jobs
+            WHEN NEW.status='ready'
+            BEGIN SELECT RAISE(ABORT, 'test ready write failed'); END
+        """)
+    with pytest.raises(sqlite3.IntegrityError, match="test ready write failed"):
+        store.complete_conversion_job(job, body, {"review": []})
+    assert store.templates() == []
+    assert store.job(job)["status"] == "analyzing"
+    with store.db() as db:
+        assert db.execute("SELECT COUNT(*) FROM revisions").fetchone()[0] == 0
 
 
 def test_model_duplicate_and_clone_refs():
@@ -91,6 +161,81 @@ def test_missing_data_and_caption_fail(tmp_path):
             tmp_path,
             tmp_path / "bad.docx",
         )
+
+
+@pytest.mark.parametrize("rows", [[], [{"result": "通过"}]])
+def test_caption_cannot_bind_to_a_sibling_repeat_even_at_the_same_index(tmp_path, rows):
+    doc = DocumentModel(
+        nodes=[
+            Node(
+                kind="repeat",
+                source="arrays",
+                children=[
+                    Node(
+                        kind="table",
+                        id="target",
+                        rows_source="rows",
+                        header_rows=0,
+                        rows=[["{{row.result}}"]],
+                    )
+                ],
+            ),
+            Node(
+                kind="repeat",
+                source="arrays",
+                children=[Node(kind="caption", target="target", text="错绑的表题注")],
+            ),
+        ]
+    )
+    with pytest.raises(ValueError, match="同一重复范围"):
+        compile_document(doc, {"arrays": [{}], "rows": rows}, tmp_path, tmp_path / "bad.docx")
+
+
+def test_caption_for_empty_table_occurrence_is_omitted_without_consuming_number(tmp_path):
+    doc = DocumentModel(
+        nodes=[
+            Node(kind="heading", text="报告"),
+            Node(
+                kind="repeat",
+                source="runs",
+                children=[
+                    Node(
+                        kind="table",
+                        id="result-table",
+                        rows_source="item.rows",
+                        header_rows=0,
+                        rows=[["{{row.name}}"]],
+                    ),
+                    Node(kind="caption", target="result-table", text="{{item.title}}"),
+                ],
+            ),
+        ]
+    )
+    output = tmp_path / "report.docx"
+    compile_document(
+        doc,
+        {"runs": [{"rows": []}, {"title": "通过项", "rows": [{"name": "正常"}]}]},
+        tmp_path,
+        output,
+    )
+    rendered = Document(output)
+    assert [p.text for p in rendered.paragraphs if p.style.name == "DS题注"] == ["表 1-1 通过项"]
+    assert len(rendered.tables) == 1
+    assert rendered.tables[0].cell(0, 0).text == "正常"
+
+
+def test_table_applies_paragraph_spacing_to_header_and_body(tmp_path):
+    node = Node(
+        kind="table",
+        rows=[["结果"], ["通过"]],
+        style={"before": 36, "after": 0},
+    )
+    output = tmp_path / "spacing.docx"
+    compile_document(DocumentModel(nodes=[node]), {}, tmp_path, output)
+    for row in Document(output).tables[0].rows:
+        paragraph = row.cells[0].paragraphs[0]
+        assert paragraph.paragraph_format.space_before.pt == 36
+        assert paragraph.paragraph_format.space_after.pt == 0
 
 
 def test_api_and_host_guard(tmp_path):
@@ -243,3 +388,23 @@ def test_invalid_or_oversized_source_is_not_silently_truncated():
     d.save(buffer)
     with pytest.raises(ValueError, match="拆分"):
         extract_docx(buffer.getvalue())
+
+
+def test_download_filename_does_not_change_the_bound_artifact(tmp_path):
+    from urllib.parse import unquote
+
+    app = create_app(tmp_path)
+    store = app.state.store
+    job = store.new_job({"kind": "render"})
+    store.update_job(job, "ready", {})
+    folder = tmp_path / "renders" / job
+    folder.mkdir()
+    (folder / "report.docx").write_bytes(b"render bytes")
+    with TestClient(app) as client:
+        response = client.get(
+            f"/api/v2/artifacts/{job}/report.docx",
+            params={"download_name": "../版本:二?内容", "download_version": 7},
+        )
+        assert response.status_code == 200
+        assert response.content == b"render bytes"
+        assert unquote(response.headers["content-disposition"]).endswith("_版本_二_内容-v7.docx")

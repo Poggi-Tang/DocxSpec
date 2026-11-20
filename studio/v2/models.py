@@ -210,7 +210,7 @@ def presets():
 def initial_document():
     return DocumentModel(
         nodes=[
-            Node(kind="heading", text="测试结果", label="测试结果"),
+            Node(kind="heading", text="测试结果"),
             Node(kind="paragraph", text="项目名称：{{project.name}}"),
             Node(
                 kind="repeat",

@@ -1,0 +1,206 @@
+.conversion-upload,
+.review-workspace {
+  color: #253553;
+}
+
+.conversion-meta {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 0.5rem 1rem;
+  margin: 1rem 0;
+  padding: 0.875rem 1rem;
+  border-radius: 8px;
+  background: #eff4ff;
+}
+
+.conversion-meta dt {
+  font-weight: 600;
+}
+
+.conversion-meta dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.conversion-upload input[hidden] {
+  display: none;
+}
+
+.conversion-file,
+.conversion-actions,
+.review-top,
+.review-footer {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+}
+
+.conversion-file {
+  margin: 1rem 0;
+  min-width: 0;
+}
+
+.conversion-file span,
+.conversion-task-notice span,
+.conversion-feedback span {
+  overflow-wrap: anywhere;
+}
+
+.conversion-actions {
+  justify-content: flex-start;
+}
+
+.conversion-feedback,
+.conversion-task-notice {
+  margin: 0.75rem 0;
+  padding: 0.75rem;
+  border: 1px solid #a6d5c3;
+  border-radius: 8px;
+  background: #f2fbf7;
+  color: #194b3c;
+}
+
+.conversion-feedback {
+  display: grid;
+  gap: 0.4rem;
+}
+
+.conversion-task-notice {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin: 0 0.75rem 0.5rem;
+}
+
+.conversion-task-notice [aria-live] {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.conversion-feedback.conversion-error,
+.conversion-task-notice.conversion-error {
+  border-color: #f2c0ba;
+  background: #fff2ef;
+  color: #862e26;
+}
+
+.conversion-setup {
+  line-height: 1.65;
+}
+
+.conversion-setup code {
+  overflow-wrap: anywhere;
+}
+
+.review-top {
+  justify-content: space-between;
+  margin-bottom: 0.75rem;
+}
+
+.review-top label {
+  display: grid;
+  gap: 0.3rem;
+  max-width: 100%;
+}
+
+.review-top select {
+  max-width: 100%;
+}
+
+.review-top p {
+  font-weight: 600;
+}
+
+.review-summary {
+  padding: 0.75rem;
+  margin-bottom: 0.75rem;
+  border-radius: 8px;
+  background: #eff4ff;
+}
+
+.review-summary p {
+  margin: 0.5rem 0 0;
+}
+
+.review-pending {
+  margin-left: 0.6rem;
+  color: #683900;
+  background: #fff0d8;
+  padding: 0.2rem 0.45rem;
+  border-radius: 4px;
+}
+
+.review-comparison {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+
+.review-comparison > section {
+  border: 1px solid #d5dfee;
+  border-radius: 8px;
+  padding: 0.875rem;
+}
+
+.review-comparison h3 {
+  margin: 0 0 0.75rem;
+  font-size: 0.95rem;
+}
+
+.review-workspace p {
+  color: #304463;
+}
+
+.review-workspace .review-excerpt {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.review-generated + .review-generated,
+.review-component .review-component {
+  border-top: 1px solid #d5dfee;
+  margin-top: 0.75rem;
+  padding-top: 0.75rem;
+}
+
+.review-component strong,
+.review-component code {
+  overflow-wrap: anywhere;
+}
+
+.review-generated button {
+  margin-top: 0.5rem;
+}
+
+.review-table {
+  overflow: auto;
+  margin-top: 0.5rem;
+}
+
+.review-table table {
+  border-collapse: collapse;
+  width: 100%;
+}
+
+.review-table td {
+  padding: 0.4rem;
+  border: 1px solid #c8d5eb;
+  min-width: 2.5rem;
+  word-break: break-word;
+  white-space: pre-wrap;
+}
+
+.review-footer {
+  justify-content: space-between;
+  margin-top: 1rem;
+}
+
+@media (max-width: 650px) {
+  .review-comparison {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

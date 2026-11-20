@@ -47,6 +47,10 @@ class ComponentInput(BaseModel):
     node: Node
 
 
+class ReviewMark(BaseModel):
+    reviewed: bool
+
+
 def create_app(data_dir: Path):
     @asynccontextmanager
     async def lifespan(app):
@@ -161,6 +165,14 @@ def create_app(data_dir: Path):
     def revision(key: str, version: int):
         return store.get_revision(key, version)
 
+    @app.get("/api/v2/templates/{key}/review")
+    def conversion_review(key: str):
+        return store.conversion_review(key)
+
+    @app.put("/api/v2/templates/{key}/review/{index}")
+    def mark_review(key: str, index: int, body: ReviewMark):
+        return store.mark_conversion_review(key, index, body.reviewed)
+
     @app.get("/api/v2/components")
     def components(set_id: str):
         return store.components(set_id)
@@ -255,13 +267,23 @@ def create_app(data_dir: Path):
         return dict(status="cancelled")
 
     @app.get("/api/v2/artifacts/{key}/{filename}")
-    def artifact(key: str, filename: str):
+    def artifact(
+        key: str, filename: str, download_name: str = "", download_version: int | None = None
+    ):
         if (
             filename not in ("report.docx", "report.pdf", "manifest.json")
             or store.job(key)["status"] != "ready"
         ):
             raise HTTPException(404)
-        return FileResponse(store.root / "renders" / key / filename, filename=filename)
+        suggested_name = filename
+        if filename == "report.docx" and download_name and download_version is not None:
+            import re
+
+            cleaned = re.sub(r'[<>:"/\\|?*\x00-\x1f\x7f]', "_", download_name[:200])
+            # Leave room for the version suffix within common filesystem byte limits.
+            label = cleaned.encode("utf-8")[:180].decode("utf-8", errors="ignore").strip(" .")
+            suggested_name = f"{label or '报告'}-v{download_version}.docx"
+        return FileResponse(store.root / "renders" / key / filename, filename=suggested_name)
 
     def ai_task(key, blocks, set_id, name):
         try:
@@ -269,15 +291,13 @@ def create_app(data_dir: Path):
                 return
             store.update_job(key, "analyzing")
             result = convert(blocks)
-            if store.job(key)["status"] == "cancelled":
-                return
-            template = store.save_template(
-                None,
+            store.complete_conversion_job(
+                key,
                 TemplateInput(
                     name=name, set_id=set_id, document=result["document"], data=result["data"]
                 ),
+                result,
             )
-            store.update_job(key, "ready", {**result, "template_id": template["id"]})
         except Exception as exc:
             store.update_job(key, "failed", error=str(exc))
 

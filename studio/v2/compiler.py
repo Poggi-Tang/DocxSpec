@@ -7,7 +7,7 @@ from pathlib import Path
 from docx.enum.section import WD_SECTION_START
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
-from docx.shared import Cm
+from docx.shared import Cm, Pt
 
 from docxspec import (
     DEFAULT_MASTER_TEMPLATE,
@@ -75,13 +75,14 @@ def style_name(n):
     }.get(n["kind"], "DS正文")
 
 
-def expand(nodes, data, suffix="", result=None):
+def expand(nodes, data, repeat_scope=(), result=None):
     if result is None:
         result = []
     for node in nodes:
         n = copy.deepcopy(node)
         n["origin_id"] = n["id"]
-        n["occurrence"] = n["id"] + suffix
+        n["repeat_scope"] = repeat_scope
+        n["occurrence"] = n["id"] + "".join(f"_{index}" for _, index in repeat_scope)
         if n["kind"] == "repeat":
             records = lookup(data, n["source"])
             if not isinstance(records, list) or len(records) > 200:
@@ -89,21 +90,23 @@ def expand(nodes, data, suffix="", result=None):
             if not records and n["empty"] == "placeholder":
                 result.append({**n, "kind": "paragraph", "text": "数据待补充"})
             for i, item in enumerate(records):
-                expand(n["children"], {**data, "item": item}, suffix + f"_{i}", result)
+                expand(n["children"], {**data, "item": item}, (*repeat_scope, (n["id"], i)), result)
         elif n["kind"] == "condition":
             value = lookup(data, n["source"])
             display = str(value).lower() if isinstance(value, bool) else str(value)
             if display == n["equals"]:
-                expand(n["children"], data, suffix, result)
+                expand(n["children"], data, repeat_scope, result)
         elif n["kind"] == "group":
-            expand(n["children"], data, suffix, result)
+            expand(n["children"], data, repeat_scope, result)
         elif n["kind"] == "section":
             result.append(n)
-            expand(n["children"], data, suffix, result)
+            expand(n["children"], data, repeat_scope, result)
         else:
-            n["text"] = fill(n["text"], data)
-            if n["target"]:
-                n["target"] += suffix
+            if n["kind"] == "caption":
+                # A caption for an omitted table never needs its fields resolved.
+                n["caption_data"] = data
+            else:
+                n["text"] = fill(n["text"], data)
             if n["kind"] == "image" and n["source"]:
                 n["asset"] = str(lookup(data, n["source"]))
             if n["kind"] == "table":
@@ -160,14 +163,17 @@ def compile_document(model: DocumentModel, data: dict, assets: Path, output: Pat
     chapter = 0
     counts = {}
     numbers = {}
+    omitted_tables = set()
     for n in nodes:
         if n["kind"] == "heading" and n["level"] == 1:
             chapter += 1
-        if n["kind"] in ("table", "image"):
+        if n["kind"] == "table" and not n["rows"]:
+            omitted_tables.add((n["id"], n["repeat_scope"]))
+        elif n["kind"] in ("image", "table"):
             kind = n["kind"]
             counts[(chapter, kind)] = counts.get((chapter, kind), 0) + 1
             counts[("all", kind)] = counts.get(("all", kind), 0) + 1
-            numbers[n["occurrence"]] = {
+            numbers[(n["id"], n["repeat_scope"])] = {
                 "chapter": f"{chapter}-{counts[(chapter, kind)]}",
                 "document": str(counts[("all", kind)]),
                 "kind": kind,
@@ -192,12 +198,17 @@ def compile_document(model: DocumentModel, data: dict, assets: Path, output: Pat
         kind = n["kind"]
         following = nodes[index + 1] if index + 1 < len(nodes) else {}
         caption_follows = (
-            following.get("kind") == "caption" and following.get("target") == n["occurrence"]
+            following.get("kind") == "caption"
+            and following["target"] == n["id"]
+            and following["repeat_scope"] == n["repeat_scope"]
         )
         p = None
         anchor_text = n["text"]
         if kind == "caption":
-            target = numbers.get(n["target"])
+            target_key = (n["target"], n["repeat_scope"])
+            if n["caption_type"] == "table" and target_key in omitted_tables:
+                continue
+            target = numbers.get(target_key)
             if not target or target["kind"] != (
                 "table" if n["caption_type"] == "table" else "image"
             ):
@@ -206,7 +217,7 @@ def compile_document(model: DocumentModel, data: dict, assets: Path, output: Pat
                 ("表 " if n["caption_type"] == "table" else "图 ")
                 + target[n["numbering"]]
                 + " "
-                + n["text"]
+                + fill(n["text"], n["caption_data"])
             )
             p = api.add_paragraph(doc, anchor_text, text_style)
         elif kind in ("heading", "paragraph"):
@@ -242,6 +253,17 @@ def compile_document(model: DocumentModel, data: dict, assets: Path, output: Pat
                 row._tr.get_or_add_trPr().append(OxmlElement("w:cantSplit"))
                 if i < n["header_rows"]:
                     row._tr.get_or_add_trPr().append(OxmlElement("w:tblHeader"))
+                if text_style.space_before_pt is not None or text_style.space_after_pt is not None:
+                    for table_cell in row.cells:
+                        for paragraph in table_cell.paragraphs:
+                            if text_style.space_before_pt is not None:
+                                paragraph.paragraph_format.space_before = Pt(
+                                    text_style.space_before_pt
+                                )
+                            if text_style.space_after_pt is not None:
+                                paragraph.paragraph_format.space_after = Pt(
+                                    text_style.space_after_pt
+                                )
             if caption_follows:
                 for last_cell in table.rows[-1].cells:
                     for paragraph in last_cell.paragraphs:

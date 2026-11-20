@@ -1,0 +1,80 @@
+.component-content small,
+.component-parameter-error {
+  display: block;
+  font-size: 0.75rem;
+  margin-top: 6px;
+}
+.component-parameter-error {
+  color: #922c23;
+}
+.component-parameter input[aria-invalid="true"] {
+  border-color: #af3834;
+}
+.component-content > label {
+  margin-top: 16px;
+}
+.component-drop-anchor {
+  position: relative;
+}
+.component-drop-before::after,
+.component-drop-after::after {
+  content: "";
+  position: absolute;
+  pointer-events: none;
+  background: #245be5;
+  height: 3px;
+  left: 0;
+  right: 0;
+  z-index: 2;
+}
+.component-drop-before::after {
+  top: 0;
+}
+.component-drop-after::after {
+  bottom: 0;
+}
+.component-drop-inside,
+.component-drop-append.component-drop-append-active {
+  outline: 2px solid #245be5;
+  outline-offset: -2px;
+  background-color: #e4edff;
+}
+.component-drop-hint {
+  display: block;
+  min-height: 1.35em;
+  color: #344966;
+  font-size: 0.75rem;
+  margin: 0 20px 4px;
+}
+.component-drop-append {
+  border: 1px dashed #5d78b5;
+  border-radius: 4px;
+  margin: 0 20px 8px;
+  padding: 6px 10px;
+  color: #23407d;
+  font-size: 0.75rem;
+  background: #f1f6ff;
+}
+.pdf-hit.component-drop-anchor {
+  position: absolute;
+}
+.pdf-pages.can-drop .pdf-hit {
+  border: 1px dashed #245be5;
+}
+.component-column-widths {
+  border: 0;
+  margin: 16px 0 0;
+  min-width: 0;
+  padding: 0;
+}
+.component-column-widths legend {
+  padding: 0;
+}
+.component-column-inputs {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 7em), 1fr));
+  gap: 6px 8px;
+}
+.component-column-inputs .component-parameter {
+  min-width: 0;
+}

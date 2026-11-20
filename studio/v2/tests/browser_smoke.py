@@ -22,11 +22,19 @@ with sync_playwright() as p:
     page.goto(base)
     page.get_by_text("模板管理", exact=True).wait_for()
     set_name = "产品测试模板集 " + str(time.time())
-    page.once("dialog", lambda d: d.accept(set_name))
-    page.get_by_role("button", name="新建模板集").click()
+    if page.locator(".set").count():
+        page.get_by_role("button", name="添加模板集", exact=True).click()
+    else:
+        page.get_by_role("button", name="新建模板集", exact=True).click()
+    setup = page.get_by_role("dialog", name="新建模板集")
+    setup.get_by_label("模板集名称").fill(set_name)
+    setup.get_by_label("默认排版引擎").select_option("libreoffice")
+    setup.get_by_role("button", name="创建模板集", exact=True).click()
     page.get_by_role("button", name=set_name, exact=True).wait_for()
-    page.once("dialog", lambda d: d.accept("功能测试报告"))
     page.get_by_role("button", name="新建模板", exact=True).click()
+    setup = page.get_by_role("dialog", name="新建报告模板")
+    setup.get_by_label("新模板名称").fill("功能测试报告")
+    setup.get_by_role("button", name="创建模板", exact=True).click()
     page.get_by_label("模板名称").wait_for()
     page.get_by_role("button", name="一级标题 DS 内置", exact=True).click()
     page.get_by_label("组件名称", exact=True).fill("验收结论")
@@ -35,15 +43,16 @@ with sync_playwright() as p:
     page.once("dialog", lambda d: d.accept("报告结论标题"))
     page.get_by_role("button", name="保存为新组件", exact=True).click()
     page.get_by_role("button", name="报告结论标题 我的组件 · v1").wait_for()
-    # Native drag into structure, then choose parent container.
-    page.get_by_role("button", name="正文 DS 内置", exact=True).drag_to(page.locator(".canvas"))
+    # Native drag to the explicitly labeled document-end position.
+    page.get_by_role("button", name="正文 DS 内置", exact=True).drag_to(
+        page.get_by_text("拖到此处，添加到文档末尾", exact=True)
+    )
     page.get_by_label("内容", exact=True).fill("所有功能测试结果已记录，请审核。")
     page.get_by_role("button", name="保存", exact=True).click()
     page.get_by_text("已保存 v2", exact=True).wait_for()
     page.get_by_label("排版引擎").select_option("libreoffice")
     page.get_by_role("button", name="更新预览", exact=True).click()
-    page.locator(".pdf-page canvas").first.wait_for(timeout=150000)
-    page.wait_for_timeout(1500)
+    page.locator('.pdf-page canvas[data-ready="true"]').first.wait_for(timeout=150000)
     page.screenshot(path=out + "/studio-real-preview.png", full_page=True)
     assert page.locator(".pdf-page canvas").count() > 0
     assert not page.get_by_role("button", name="DOCX", exact=True).is_disabled()
@@ -58,15 +67,17 @@ with sync_playwright() as p:
     assert page.get_by_role("button", name="DOCX", exact=True).is_disabled()
     page.screenshot(path=out + "/studio-stale-preview.png", full_page=True)
     page.get_by_role("button", name="保存", exact=True).click()
-    page.get_by_text("已保存 v4", exact=True).wait_for()
+    page.get_by_text("已保存 v3", exact=True).wait_for()
     page.reload()
     page.get_by_role("button", name=set_name, exact=True).click()
     page.get_by_role("button", name="功能测试报告", exact=True).click()
     page.locator(".tree-node").filter(has_text="正文").last.click()
     assert page.get_by_label("内容", exact=True).input_value() == "修改后应显示预览已过期。"
     page.get_by_role("button", name="AI 转化模板", exact=True).click()
-    page.get_by_text("尚未配置模型服务。", exact=False).wait_for()
-    assert page.locator("input[type=file]").is_disabled()
+    conversion = page.get_by_role("dialog", name="AI 转化模板")
+    conversion.get_by_text("未配置", exact=True).wait_for()
+    conversion.get_by_text("查看配置方法", exact=True).click()
+    conversion.get_by_text("STUDIO_AI_BASE_URL", exact=True).wait_for()
     assert errors == [], errors
     open(out + "/browser-result.json", "w").write(
         json.dumps(

@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import {
   Plus,
@@ -18,51 +18,41 @@ import {
   Clock,
   ArrowCounterClockwise,
 } from "@phosphor-icons/react";
-import * as pdfjs from "pdfjs-dist";
-import worker from "pdfjs-dist/build/pdf.worker.min.mjs?url";
+import { api, JobFailedError, pollJob, type Job } from "./api";
+import {
+  availableFields,
+  captionTargets,
+  cloneNode,
+  flat,
+  locateNodes,
+} from "./document";
+import type {
+  DraftContent,
+  ReportNode,
+  Template,
+  TemplateSummary,
+} from "./document";
+import { contentOf, useEditor, type RecoverableDraft } from "./editor";
+import { DraftRecovery } from "./DraftRecovery";
+import {
+  ColorParameter,
+  ComponentContent,
+  NumberParameter,
+} from "./ComponentFields";
+import { PdfPreview, type RenderResult } from "./PdfPreview";
+import { StudioDialog } from "./StudioDialog";
+import {
+  ConversionNotice,
+  ConversionUpload,
+  ReviewWorkspace,
+  type ConversionReview,
+  type ConversionTask,
+} from "./StudioConversion";
+import { TemplateSetup } from "./TemplateSetup";
+import { TestDataEditor } from "./TestDataEditor";
 import "./style.css";
-pdfjs.GlobalWorkerOptions.workerSrc = worker;
-const api = async (path: string, body?: any, method?: string) => {
-  const r = await fetch("/api/v2" + path, {
-    method: method || (body ? "POST" : "GET"),
-    headers:
-      body instanceof FormData ? {} : { "Content-Type": "application/json" },
-    body: body
-      ? body instanceof FormData
-        ? body
-        : JSON.stringify(body)
-      : undefined,
-  });
-  const v = await r.json();
-  if (!r.ok)
-    throw Error(
-      typeof v.detail === "string" ? v.detail : JSON.stringify(v.detail),
-    );
-  return v;
-};
-const flat = (nodes: any[]): any[] =>
-  nodes.flatMap((n) => [n, ...flat(n.children || [])]);
-const clone = (node: any) => {
-  const n = structuredClone(node),
-    ids: any = {};
-  flat([n]).forEach((x) => {
-    ids[x.id] = crypto.randomUUID();
-    x.id = ids[x.id];
-  });
-  flat([n]).forEach((x) => {
-    x.target = ids[x.target] || "";
-  });
-  return n;
-};
-const paths = (data: any, prefix = ""): string[] =>
-  Object.entries(data || {}).flatMap(([k, v]) => {
-    const p = prefix ? prefix + "." + k : k;
-    return Array.isArray(v)
-      ? []
-      : v && typeof v === "object"
-        ? paths(v, p)
-        : [p];
-  });
+import "./component-editing.css";
+
 const names: any = {
   heading: "标题",
   paragraph: "正文",
@@ -86,363 +76,996 @@ const icon = (kind: string) =>
   ) : (
     <FileText />
   );
-function PDF({ job, onSelect, selected }: any) {
-  const ref = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    let stopped = false;
-    let loading: any;
-    const tasks: any[] = [];
-    const run = async () => {
-      loading = pdfjs.getDocument(
-        "/api/v2/artifacts/" + job.id + "/report.pdf",
-      );
-      const doc = await loading.promise;
-      if (stopped) return;
-      ref.current!.innerHTML = "";
-      for (let i = 1; i <= doc.numPages; i++) {
-        if (stopped) break;
-        const page = await doc.getPage(i);
-        const viewport = page.getViewport({ scale: 1 });
-        const wrap = document.createElement("div");
-        wrap.className = "pdf-page";
-        wrap.style.aspectRatio = viewport.width + "/" + viewport.height;
-        const canvas = document.createElement("canvas");
-        canvas.width = viewport.width * 1.5;
-        canvas.height = viewport.height * 1.5;
-        wrap.append(canvas);
-        ref.current!.append(wrap);
-        const task = page.render({
-          canvas,
-          viewport: page.getViewport({ scale: 1.5 }),
-        });
-        tasks.push(task);
-        await task.promise;
-        for (const m of job.result.mapping.filter((m: any) => m.page === i - 1))
-          for (const r of m.rects) {
-            const b = document.createElement("button");
-            b.className = "pdf-hit" + (m.node_id === selected ? " chosen" : "");
-            b.title = "编辑 " + m.text;
-            b.setAttribute("aria-label", b.title);
-            Object.assign(b.style, {
-              left: (r[0] / viewport.width) * 100 + "%",
-              top: (r[1] / viewport.height) * 100 + "%",
-              width: ((r[2] - r[0]) / viewport.width) * 100 + "%",
-              height: ((r[3] - r[1]) / viewport.height) * 100 + "%",
-            });
-            b.onclick = () => onSelect(m.node_id);
-            wrap.append(b);
-          }
-      }
-    };
-    run().catch((e) => {
-      if (!stopped && ref.current)
-        ref.current.textContent = "PDF 加载失败：" + e.message;
-    });
-    return () => {
-      stopped = true;
-      tasks.forEach((t) => t.cancel());
-      loading?.destroy();
-    };
-  }, [job.id, selected]);
-  return <div ref={ref} className="pdf-pages" />;
+interface TemplateSet {
+  id: string;
+  name: string;
+  engine: string;
 }
+interface Component {
+  id?: string;
+  name: string;
+  version?: number;
+  node: ReportNode;
+  builtin?: boolean;
+}
+interface Bootstrap {
+  sets: TemplateSet[];
+  templates: TemplateSummary[];
+  presets: Component[];
+  engines: { id: string; name: string; available: boolean; reason: string }[];
+  ai: { configured: boolean; destination: string; model: string };
+}
+interface Preview {
+  templateId: string;
+  downloadName: string;
+  version: number;
+  engine: string;
+  contentKey: string;
+  job: Job<RenderResult>;
+}
+interface RenderRequest {
+  jobId?: string;
+}
+type Dialog =
+  | { kind: "data"; sessionKey: symbol }
+  | { kind: "create-set" }
+  | { kind: "create-template"; setId: string }
+  | { kind: "versions"; sessionKey: symbol; versions: TemplateSummary[] }
+  | { kind: "ai"; setId: string }
+  | { kind: "review"; templateId: string };
+
+interface ImageUpload {
+  sessionKey: symbol;
+  completion: Promise<boolean>;
+}
+
+type InsertionPoint =
+  { kind: "append" } | { kind: "before" | "after" | "inside"; nodeId: string };
+
+const componentMime = "application/x-docxspec-component";
+const containerKinds = new Set(["repeat", "condition", "section", "group"]);
+const numericStyles = {
+  size: { min: 5, max: 72, unit: " pt" },
+  before: { min: 0, max: 144, unit: " pt" },
+  after: { min: 0, max: 144, unit: " pt" },
+  line: { min: 1, max: 3, unit: " 倍" },
+};
+
+function edgeAt(y: number, bounds: DOMRect, container: boolean) {
+  const relative = (y - bounds.top) / Math.max(1, bounds.height);
+  if (container && relative >= 0.25 && relative < 0.75) return "inside";
+  return relative < 0.5 ? "before" : "after";
+}
+
+function nodeName(node: ReportNode) {
+  return node.label.trim() || node.text.trim() || names[node.kind];
+}
+
 function App() {
-  const [boot, B] = useState<any>(),
+  const [dragSession, setDragSession] = useState<symbol>();
+  const [dropIndicator, setDropIndicator] = useState<{
+    zone: string;
+    point: InsertionPoint;
+  }>();
+  const [styleReset, setStyleReset] = useState(0);
+  const inspectorProperties = useRef<HTMLDivElement>(null);
+  const inspectorEntry = useRef<{
+    trigger: HTMLElement;
+    panel: "browse" | "document" | "properties";
+    sessionKey: symbol;
+  }>(undefined);
+  const [boot, B] = useState<Bootstrap>(),
     [setId, S] = useState(""),
-    [tpl, T] = useState<any>(),
-    [saved, SV] = useState(""),
     [selected, SEL] = useState(""),
-    [custom, C] = useState<any[]>([]),
+    [components, C] = useState<Record<string, Component[]>>({}),
     [error, E] = useState(""),
     [message, M] = useState(""),
-    [job, J] = useState<any>(),
-    [snapshot, SN] = useState(""),
-    [busy, BUSY] = useState(false),
+    [rendered, setRendered] = useState<Preview>(),
+    [rendering, setRendering] = useState(false),
+    [saving, setSaving] = useState<symbol>(),
+    [pendingEngines, setPendingEngines] = useState<Record<string, string>>({}),
     [mode, MODE] = useState("preview"),
-    [modal, MOD] = useState(""),
-    [json, JSONTEXT] = useState(""),
-    [reviews, REV] = useState<any>(),
-    [undo, U] = useState<any[]>([]);
-  const latest = useRef(tpl);
-  latest.current = tpl;
-  const serial = tpl ? JSON.stringify([tpl.document, tpl.data, tpl.name]) : "";
-  const dirty = !!tpl && serial !== saved;
-  const stale = job && snapshot !== serial;
-  const node = tpl
-    ? flat(tpl.document.nodes).find((n) => n.id === selected)
-    : null;
-  const currentSet = boot?.sets.find((s: any) => s.id === setId);
-  const [engine, ENGINE] = useState("word");
-  const run = async (fn: () => Promise<any>) => {
+    [dialog, setDialogState] = useState<Dialog | null>(null),
+    [panel, setPanel] = useState<"browse" | "document" | "properties">(
+      "document",
+    ),
+    [reviews, setReviews] = useState<Record<string, ConversionReview | null>>(
+      {},
+    ),
+    [conversionTask, setConversionTask] = useState<ConversionTask>();
+  const converting = useRef(false);
+  const navigation = useRef(0);
+  const dialogIntent = useRef(0);
+  const archiveOperation = useRef<Promise<void> | null>(null);
+  const renderRequest = useRef<RenderRequest | null>(null);
+  const [pdfControls, setPdfControls] = useState<HTMLDivElement | null>(null);
+  const imageRequests = useRef(new Map<string, ImageUpload>());
+
+  function showDialog(next: Dialog | null) {
+    ++dialogIntent.current;
+    setDialogState(next);
+  }
+
+  function selectComponent(id: string) {
+    SEL(id);
+    setPanel("properties");
+  }
+
+  function updateTemplate(template: TemplateSummary) {
+    const { id, set_id, name, version, updated, archived } = template;
+    B((previous) => {
+      if (!previous) return previous;
+      const existing = previous.templates.find((entry) => entry.id === id);
+      if (!archived && existing && existing.version > version) return previous;
+      const remaining = previous.templates.filter((entry) => entry.id !== id);
+      return {
+        ...previous,
+        templates: archived
+          ? remaining
+          : [{ id, set_id, name, version, updated }, ...remaining],
+      };
+    });
+  }
+
+  const editor = useEditor(updateTemplate, E);
+  const session = editor.session;
+  const tpl = session?.template;
+  const dirty = session && session.contentKey !== session.savedKey;
+  const ownerSetId = tpl?.set_id ?? setId;
+  const currentSet = boot?.sets.find((set) => set.id === ownerSetId);
+  const pendingEngine = pendingEngines[ownerSetId];
+  const engine = pendingEngine ?? currentSet?.engine ?? "word";
+  const engineOption = boot?.engines.find((option) => option.id === engine);
+  const availableEngine = boot?.engines.find((option) => option.available);
+  const browsingSet = boot?.sets.find((set) => set.id === setId);
+  const custom = components[ownerSetId] ?? [];
+  const activePreview =
+    rendered && rendered.templateId === tpl?.id && rendered.engine === engine
+      ? rendered
+      : undefined;
+  const job = activePreview?.job;
+  const stale =
+    activePreview && activePreview.contentKey !== session.contentKey;
+  const locations = useMemo(
+    () => locateNodes(tpl?.document.nodes ?? []),
+    [tpl?.document.nodes],
+  );
+  const location = locations.find(({ node }) => node.id === selected);
+  const node = location?.node;
+  const fields = useMemo(
+    () => (location && tpl ? availableFields(tpl.data, location) : []),
+    [location, tpl?.data],
+  );
+  const targets =
+    node?.kind === "caption" ? captionTargets(location, locations) : [];
+  const usableWidth =
+    tpl && tpl.document.page.width - 2 * tpl.document.page.margin;
+  const previewColumnWidths =
+    node?.kind === "table"
+      ? node.columns.length
+        ? node.columns
+        : node.rows[0].map(() => usableWidth / node.rows[0].length)
+      : [];
+  const currentReview = tpl ? reviews[tpl.id] : undefined;
+  const conversionTarget =
+    dialog?.kind === "ai"
+      ? boot?.sets.find((set) => set.id === dialog.setId)
+      : undefined;
+
+  const run = async (fn: () => Promise<unknown>) => {
     E("");
     try {
-      return await fn();
-    } catch (e: any) {
-      E(e.message);
+      await fn();
+    } catch (reason) {
+      E(reason.message);
     }
   };
-  const refresh = async () => {
-    const b = await api("/bootstrap");
-    B(b);
-    return b;
-  };
+
   useEffect(() => {
-    run(async () => {
-      const b = await refresh();
-      if (b.sets[0]) {
-        S(b.sets[0].id);
-        ENGINE(b.sets[0].engine);
-      }
+    void run(async () => {
+      const data = await api<Bootstrap>("/bootstrap");
+      B(data);
+      S(data.sets[0]?.id ?? "");
     });
   }, []);
+
   useEffect(() => {
-    if (setId) run(async () => C(await api("/components?set_id=" + setId)));
-  }, [setId]);
+    if (!ownerSetId) return;
+    let active = true;
+    api<Component[]>("/components?set_id=" + ownerSetId)
+      .then((loaded) => {
+        if (active)
+          C((previous) => {
+            const all = new Map(
+              loaded.map((component) => [component.id, component]),
+            );
+            for (const component of previous[ownerSetId] ?? [])
+              all.set(component.id, component);
+            return { ...previous, [ownerSetId]: [...all.values()] };
+          });
+      })
+      .catch((reason) => {
+        if (active) E(reason.message);
+      });
+    return () => {
+      active = false;
+    };
+  }, [ownerSetId]);
+
   useEffect(() => {
-    if (tpl && dirty)
-      localStorage.setItem("ds-draft-" + tpl.id, JSON.stringify(tpl));
-  }, [serial]);
+    const id = tpl?.id;
+    if (!id || reviews[id] !== undefined) return;
+    let active = true;
+    api<ConversionReview | null>("/templates/" + id + "/review")
+      .then((review) => {
+        if (active) setReviews((previous) => ({ ...previous, [id]: review }));
+      })
+      .catch((reason) => {
+        if (active) E(reason.message);
+      });
+    return () => {
+      active = false;
+    };
+  }, [tpl?.id]);
+
   useEffect(() => {
-    const f = (e: BeforeUnloadEvent) => {
-      if (dirty) {
-        e.preventDefault();
-        e.returnValue = "";
+    const beforeUnload = (event: BeforeUnloadEvent) => {
+      const active = editor.current.current;
+      if (
+        active &&
+        (active.contentKey !== active.savedKey ||
+          pendingImages(active.key).length)
+      ) {
+        event.preventDefault();
+        event.returnValue = "";
       }
     };
-    window.addEventListener("beforeunload", f);
-    return () => window.removeEventListener("beforeunload", f);
-  }, [dirty]);
-  const edit = (fn: (t: any) => void) => {
-    U((h) => [...h.slice(-39), structuredClone(tpl)]);
-    const t = structuredClone(tpl);
-    fn(t);
-    T(t);
-  };
-  const patch = (v: any) =>
-    edit((t) =>
-      Object.assign(
-        flat(t.document.nodes).find((n) => n.id === selected),
-        v,
-      ),
-    );
-  const save = async () => {
-    const t = latest.current;
-    if (!t) return;
-    const r = await api(
-      "/templates/" + t.id,
-      {
-        name: t.name,
-        set_id: t.set_id,
-        version: t.version,
-        document: t.document,
-        data: t.data,
-      },
-      "PUT",
-    );
-    if (latest.current === t) {
-      T(r);
-      SV(JSON.stringify([r.document, r.data, r.name]));
-    } else T((now: any) => ({ ...now, version: r.version }));
-    localStorage.removeItem("ds-draft-" + t.id);
-    await refresh();
-    M("已保存 v" + r.version);
-    return r;
-  };
-  const open = async (id: string) => {
-    if (dirty) await save();
-    const t = await api("/templates/" + id);
-    const draft = localStorage.getItem("ds-draft-" + id);
-    SV(JSON.stringify([t.document, t.data, t.name]));
-    T(draft ? JSON.parse(draft) : t);
-    S(t.set_id);
-    ENGINE(boot.sets.find((s: any) => s.id === t.set_id).engine);
+    window.addEventListener("beforeunload", beforeUnload);
+    return () => window.removeEventListener("beforeunload", beforeUnload);
+  }, []);
+
+  function cancelRender(jobId: string) {
+    // A superseded job must not report cancellation errors in the new editor.
+    void api("/jobs/" + jobId, undefined, "DELETE").catch(() => {});
+  }
+
+  // Each document open and engine change invalidates outstanding previews.
+  function clearPreview() {
+    const jobId = renderRequest.current?.jobId;
+    renderRequest.current = null;
+    setRendering(false);
+    setRendered(undefined);
+    if (jobId) cancelRender(jobId);
+  }
+
+  function showTemplate(template: Template) {
+    const recovered = editor.load(template);
+    S(template.set_id);
     SEL("");
-    J(null);
-    U([]);
-    if (draft) M("已恢复本机未保存草稿，请核对后保存");
-  };
-  const createSet = () =>
-    run(async () => {
-      const name = prompt("新模板集名称");
-      if (!name?.trim()) return;
-      const s = await api("/sets", { name, engine: "word" });
-      await refresh();
-      S(s.id);
-      ENGINE(s.engine);
-    });
+    setPanel("document");
+    showDialog(null);
+    clearPreview();
+    M(recovered ? "已恢复本机未保存草稿，请核对后保存" : "");
+  }
+
+  function pendingImages(sessionKey: symbol | undefined) {
+    return [...imageRequests.current.values()].filter(
+      (upload) => upload.sessionKey === sessionKey,
+    );
+  }
+
+  async function settleOutgoing(
+    from: symbol | undefined,
+    isCurrent: () => boolean,
+    action: "save" | "uploads" | "pending-save",
+  ) {
+    const uploadMessage = "正在等待图片上传完成";
+    while (isCurrent()) {
+      const uploads = pendingImages(from);
+      if (uploads.length) {
+        M(uploadMessage);
+        const results = await Promise.all(
+          uploads.map((upload) => upload.completion),
+        );
+        M((message) => (message === uploadMessage ? "" : message));
+        if (!results.every(Boolean)) return false;
+        continue;
+      }
+      if (action === "save" && !(await editor.flush(from, isCurrent)))
+        return false;
+      if (action === "pending-save" && from)
+        await editor.waitForPendingSave(from);
+      // A new upload may have started while a save was in progress.
+      if (!pendingImages(from).length) return isCurrent();
+    }
+    return false;
+  }
+
+  async function navigate(
+    load: () => Promise<Template>,
+    saveOutgoing = true,
+    wanted = () => true,
+  ) {
+    const request = ++navigation.current;
+    await archiveOperation.current;
+    if (navigation.current !== request || !wanted()) return false;
+    const from = editor.current.current?.key;
+    const isCurrent = () =>
+      navigation.current === request &&
+      editor.current.current?.key === from &&
+      wanted();
+    if (
+      !(await settleOutgoing(
+        from,
+        isCurrent,
+        saveOutgoing ? "save" : "uploads",
+      ))
+    )
+      return false;
+    const target = await load();
+    // The source can be edited while the target is being loaded.
+    if (
+      !(await settleOutgoing(
+        from,
+        isCurrent,
+        saveOutgoing ? "save" : "pending-save",
+      )) ||
+      !isCurrent()
+    ) {
+      return false;
+    }
+    showTemplate(target);
+    return true;
+  }
+
+  async function open(id: string) {
+    const active = editor.current.current?.template;
+    if (active?.id === id) {
+      ++navigation.current;
+      S(active.set_id);
+      setPanel("document");
+      return true;
+    }
+    return navigate(() => api<Template>("/templates/" + id));
+  }
+
+  async function save() {
+    const key = editor.current.current?.key;
+    if (!key) return;
+    setSaving(key);
+    try {
+      const result = await editor.save(key);
+      const active = editor.current.current;
+      if (result && active?.key === key) {
+        const stillDirty = active.contentKey !== active.savedKey;
+        M(
+          "已保存 v" +
+            result.version +
+            (stillDirty ? "，还有更新的改动未保存" : ""),
+        );
+      }
+    } finally {
+      setSaving((current) => (current === key ? undefined : current));
+    }
+  }
+
+  const createSet = () => showDialog({ kind: "create-set" });
   const createTemplate = () =>
+    setId ? showDialog({ kind: "create-template", setId }) : createSet();
+
+  async function submitSetup(
+    kind: "create-set" | "create-template",
+    name: string,
+    engine: string,
+  ) {
+    const intent = dialogIntent.current;
+    E("");
+    const wanted = () => dialogIntent.current === intent;
+    if (kind === "create-set") {
+      const set = await api<TemplateSet>("/sets", { name, engine });
+      B((previous) => ({ ...previous, sets: [...previous.sets, set] }));
+      if (wanted()) {
+        ++navigation.current;
+        S(set.id);
+        if (!editor.current.current) setPanel("document");
+        showDialog(null);
+      }
+    } else if (dialog?.kind === "create-template") {
+      const targetSetId = dialog.setId;
+      await navigate(
+        async () => {
+          const defaults = await api<DraftContent>("/default");
+          const template = await api<Template>("/templates", {
+            ...defaults,
+            name,
+            set_id: targetSetId,
+          });
+          updateTemplate(template);
+          return template;
+        },
+        true,
+        wanted,
+      );
+    }
+  }
+
+  const copyTemplate = () =>
     run(async () => {
-      if (!setId) throw Error("请先新建或选择模板集");
-      const name = prompt("新模板名称", "功能测试报告");
-      if (!name?.trim()) return;
-      if (dirty) await save();
-      const d = await api("/default");
-      const t = await api("/templates", { name, set_id: setId, ...d });
-      await refresh();
-      T(t);
-      SV(JSON.stringify([t.document, t.data, t.name]));
-      SEL("");
-      J(null);
-      U([]);
+      if (!editor.current.current) return;
+      await navigate(async () => {
+        const active = editor.current.current;
+        if (!active) throw new Error("原模板已关闭");
+        const source = active.template;
+        const template = await api<Template>("/templates", {
+          ...contentOf(source),
+          name: source.name + " · 副本",
+          set_id: source.set_id,
+        });
+        updateTemplate(template);
+        return template;
+      }, false);
     });
-  const insert = (component: any, target = selected) => {
-    const n = clone(component.node);
-    n.component_id = component.id;
-    n.component_version = component.version;
-    edit((t) => {
-      const parent = flat(t.document.nodes).find((x) => x.id === target);
+
+  function recoverDraft(draft: RecoverableDraft) {
+    const active = editor.current.current;
+    if (
+      !active ||
+      archiveOperation.current ||
+      pendingImages(active.key).length
+    ) {
+      E("请等当前操作完成后再打开本机草稿。");
+      return false;
+    }
+    E("");
+    if (!editor.restoreDraft(draft)) return false;
+    SEL("");
+    setPanel("document");
+    showDialog(null);
+    clearPreview();
+    M("已恢复本机草稿，请核对后保存");
+    return true;
+  }
+
+  const archiveTemplate = () =>
+    run(async () => {
+      const active = editor.current.current;
       if (
-        parent &&
-        ["repeat", "condition", "section", "group"].includes(parent.kind)
+        !active ||
+        archiveOperation.current ||
+        !confirm("归档此模板？历史版本会保留。")
       )
-        parent.children.push(n);
-      else {
-        const list =
-          [
-            t.document.nodes,
-            ...flat(t.document.nodes).map((x) => x.children),
-          ].find((xs) => xs.some((x: any) => x.id === target)) ||
-          t.document.nodes;
-        const idx = list.findIndex((x: any) => x.id === target);
-        list.splice(idx < 0 ? list.length : idx + 1, 0, n);
+        return;
+      ++navigation.current;
+      const isCurrent = () => editor.current.current?.key === active.key;
+      const operation = (async () => {
+        if (!(await settleOutgoing(active.key, isCurrent, "save"))) return;
+        await api("/templates/" + active.template.id, undefined, "DELETE");
+        try {
+          if (
+            !(await settleOutgoing(active.key, isCurrent, "save")) ||
+            !isCurrent()
+          )
+            return;
+          editor.close();
+          SEL("");
+          setPanel("document");
+          showDialog(null);
+          M("");
+          clearPreview();
+        } finally {
+          updateTemplate({ ...active.template, archived: 1 });
+        }
+      })();
+      archiveOperation.current = operation;
+      try {
+        await operation;
+      } finally {
+        archiveOperation.current = null;
       }
     });
-    SEL(n.id);
-    M("已添加 " + component.name + "，编辑后更新预览");
+
+  const edit = editor.edit;
+  const patch = (updates: Partial<ReportNode>) =>
+    edit((draft) => {
+      const target = flat(draft.document.nodes).find(
+        (entry) => entry.id === selected,
+      );
+      if (target) Object.assign(target, updates);
+    }, session?.key);
+
+  function siblings(nodes: ReportNode[], id: string) {
+    return [nodes, ...flat(nodes).map((entry) => entry.children)].find((list) =>
+      list.some((entry) => entry.id === id),
+    );
+  }
+
+  function selectForEdit(id: string, keyboard: boolean) {
+    const trigger = document.activeElement;
+    if (
+      keyboard &&
+      session &&
+      trigger instanceof HTMLElement &&
+      !inspectorProperties.current?.contains(trigger)
+    ) {
+      inspectorEntry.current = { trigger, panel, sessionKey: session.key };
+    } else if (!keyboard) inspectorEntry.current = undefined;
+    selectComponent(id);
+    if (keyboard) {
+      requestAnimationFrame(() => {
+        const panel = inspectorProperties.current;
+        const control =
+          panel?.querySelector("textarea") ??
+          panel?.querySelector<HTMLElement>("input, select");
+        (control ?? panel)?.focus();
+      });
+    }
+  }
+
+  function finishEditing() {
+    const previous = inspectorEntry.current;
+    inspectorEntry.current = undefined;
+    SEL("");
+    if (!previous || previous.sessionKey !== session?.key) {
+      setPanel("document");
+      return;
+    }
+    setPanel(previous.panel);
+    requestAnimationFrame(() => {
+      if (previous.trigger.isConnected) previous.trigger.focus();
+    });
+  }
+
+  const clickInsertion: InsertionPoint = node
+    ? {
+        kind: containerKinds.has(node.kind) ? "inside" : "after",
+        nodeId: node.id,
+      }
+    : { kind: "append" };
+
+  function insertionDescription(point: InsertionPoint) {
+    if (point.kind === "append") return "添加到文档末尾";
+    const anchor = locations.find(({ node }) => node.id === point.nodeId)?.node;
+    const label = anchor ? nodeName(anchor).slice(0, 22) : "选中组件";
+    return point.kind === "inside"
+      ? "添加到「" + label + "」内"
+      : "插入「" + label + "」" + (point.kind === "before" ? "之前" : "之后");
+  }
+
+  const insert = (
+    component: Component,
+    point = clickInsertion,
+    duplicate = false,
+    keyboard = false,
+  ) => {
+    const added = cloneNode(component.node, duplicate);
+    added.component_id = component.id;
+    added.component_version = component.version;
+    if (component.builtin && added.kind === "heading") added.label = "";
+    let inserted = false;
+    edit((draft) => {
+      const { nodes } = draft.document;
+      if (point.kind === "append") {
+        nodes.push(added);
+      } else if (point.kind === "inside") {
+        const parent = flat(nodes).find((entry) => entry.id === point.nodeId);
+        if (!parent || !containerKinds.has(parent.kind)) return;
+        parent.children.push(added);
+      } else {
+        const list = siblings(nodes, point.nodeId);
+        if (!list) return;
+        const index = list.findIndex((entry) => entry.id === point.nodeId);
+        list.splice(index + (point.kind === "after" ? 1 : 0), 0, added);
+      }
+      inserted = true;
+    }, session?.key);
+    if (!inserted) return;
+    selectForEdit(added.id, keyboard);
+    M("已添加 " + component.name + "，位置：" + insertionDescription(point));
   };
+
+  function startComponentDrag(event: React.DragEvent, component: Component) {
+    if (!component.id || !session) return;
+    event.dataTransfer.setData(componentMime, component.id);
+    event.dataTransfer.effectAllowed = "copy";
+    setDragSession(session.key);
+    setDropIndicator(undefined);
+  }
+
+  function endComponentDrag() {
+    setDragSession(undefined);
+    setDropIndicator(undefined);
+  }
+
+  const draggingComponent = !!session && dragSession === session.key;
+
+  function dropAttributes(
+    zone: string,
+    pointAt: (event: React.DragEvent<HTMLElement>) => InsertionPoint,
+  ) {
+    function accepts(event: React.DragEvent) {
+      return (
+        draggingComponent &&
+        Array.from(event.dataTransfer.types).includes(componentMime)
+      );
+    }
+    return {
+      onDragOver(event: React.DragEvent<HTMLElement>) {
+        if (!accepts(event)) return;
+        event.preventDefault();
+        event.stopPropagation();
+        event.dataTransfer.dropEffect = "copy";
+        const point = pointAt(event);
+        setDropIndicator((current) =>
+          current?.zone === zone && current.point.kind === point.kind
+            ? current
+            : { zone, point },
+        );
+      },
+      onDragLeave(event: React.DragEvent<HTMLElement>) {
+        if (
+          event.relatedTarget instanceof Node &&
+          event.currentTarget.contains(event.relatedTarget)
+        )
+          return;
+        setDropIndicator((current) =>
+          current?.zone === zone ? undefined : current,
+        );
+      },
+      onDrop(event: React.DragEvent<HTMLElement>) {
+        if (!accepts(event)) return;
+        event.preventDefault();
+        event.stopPropagation();
+        const id = event.dataTransfer.getData(componentMime);
+        const component = [...boot.presets, ...custom].find(
+          (item) => item.id === id,
+        );
+        if (component) insert(component, pointAt(event));
+        endComponentDrag();
+      },
+    };
+  }
+
+  function dropClass(zone: string) {
+    const side =
+      draggingComponent &&
+      dropIndicator?.zone === zone &&
+      dropIndicator.point.kind;
+    return side
+      ? " component-drop-" + side + (side === "append" ? "-active" : "")
+      : "";
+  }
+
   const move = (delta: number) =>
-    edit((t) => {
-      const list = [
-        t.document.nodes,
-        ...flat(t.document.nodes).map((x) => x.children),
-      ].find((xs) => xs.some((n: any) => n.id === selected));
-      const i = list.findIndex((n: any) => n.id === selected);
+    edit((draft) => {
+      const list = siblings(draft.document.nodes, selected);
+      if (!list) return;
+      const i = list.findIndex((entry) => entry.id === selected);
       if (i + delta >= 0 && i + delta < list.length) {
-        const [n] = list.splice(i, 1);
-        list.splice(i + delta, 0, n);
+        const [moved] = list.splice(i, 1);
+        list.splice(i + delta, 0, moved);
       }
-    });
+    }, session?.key);
+
   const remove = () => {
-    edit((t) => {
-      const list = [
-        t.document.nodes,
-        ...flat(t.document.nodes).map((x) => x.children),
-      ].find((xs) => xs.some((n: any) => n.id === selected));
-      list.splice(
-        list.findIndex((n: any) => n.id === selected),
+    edit((draft) => {
+      const list = siblings(draft.document.nodes, selected);
+      if (!list) return;
+      const [removed] = list.splice(
+        list.findIndex((entry) => entry.id === selected),
         1,
       );
-    });
+      const removedIds = new Set(flat([removed]).map((entry) => entry.id));
+      for (const entry of flat(draft.document.nodes)) {
+        if (removedIds.has(entry.target)) entry.target = "";
+      }
+    }, session?.key);
     SEL("");
   };
-  const poll = async (id: string) => {
-    for (;;) {
-      const j = await api("/jobs/" + id);
-      if (j.status === "ready") return j;
-      if (["failed", "cancelled"].includes(j.status))
-        throw Error(j.error || "任务已取消");
-      M(
-        (
-          {
-            queued: "排队中",
-            compiling: "正在生成 DOCX",
-            rendering: "正在 Office 中排版",
-            analyzing: "AI 正在分析报告",
-          } as any
-        )[j.status] || j.status,
+
+  function uploadImage(
+    file: File,
+    nodeId: string,
+    templateId: string,
+    key: symbol,
+  ) {
+    const slot = templateId + ":" + nodeId;
+    const form = new FormData();
+    form.append("file", file);
+    E("");
+    const current = () =>
+      imageRequests.current.get(slot) === request &&
+      editor.current.current?.key === key;
+    const request: ImageUpload = {
+      sessionKey: key,
+      completion: api<{ id: string }>("/assets", form)
+        .then((asset) => {
+          if (current()) {
+            edit((draft) => {
+              const target = flat(draft.document.nodes).find(
+                (entry) => entry.id === nodeId,
+              );
+              if (target?.kind === "image") target.asset = asset.id;
+            }, key);
+          }
+          return true;
+        })
+        .catch((reason) => {
+          if (!current()) return true;
+          E(reason.message);
+          return false;
+        })
+        .finally(() => {
+          if (imageRequests.current.get(slot) === request)
+            imageRequests.current.delete(slot);
+        }),
+    };
+    imageRequests.current.set(slot, request);
+  }
+
+  async function changeEngine(next: string) {
+    if (!currentSet || pendingEngine || next === engine) return;
+    const owner = currentSet.id;
+    clearPreview();
+    M("");
+    setPendingEngines((previous) => ({ ...previous, [owner]: next }));
+    try {
+      const updated = await api<TemplateSet>(
+        "/sets/" + owner,
+        { name: currentSet.name, engine: next },
+        "PUT",
       );
-      await new Promise((r) => setTimeout(r, 1000));
+      B((previous) => ({
+        ...previous,
+        sets: previous.sets.map((set) => (set.id === owner ? updated : set)),
+      }));
+    } finally {
+      setPendingEngines((previous) => {
+        const remaining = { ...previous };
+        delete remaining[owner];
+        return remaining;
+      });
     }
-  };
-  const preview = () =>
-    run(async () => {
-      BUSY(true);
-      try {
-        await save();
-        const t = latest.current;
-        const snap = JSON.stringify([t.document, t.data, t.name]);
-        const j = await api("/renders", {
-          document: t.document,
-          data: t.data,
-          engine,
+  }
+
+  async function preview() {
+    const active = editor.current.current;
+    if (
+      !active ||
+      renderRequest.current ||
+      pendingEngine ||
+      !engineOption?.available
+    )
+      return;
+    E("");
+    const request: RenderRequest = {};
+    renderRequest.current = request;
+    const ownsRequest = () =>
+      renderRequest.current === request &&
+      editor.current.current?.key === active.key;
+    // Save responses can normalize content, but only edits change the undo history.
+    const keepsInput = () =>
+      ownsRequest() && editor.current.current?.undo === active.undo;
+    setRendering(true);
+    setPanel("document");
+    M("正在准备预览");
+    try {
+      if (!(await editor.flush(active.key, keepsInput)) || !keepsInput()) {
+        if (ownsRequest()) M("模板在准备预览期间已修改，请重新更新预览");
+        return;
+      }
+      const prepared = editor.current.current;
+      const template = prepared.template;
+      const signature = prepared.contentKey;
+      const queued = await api<{ id: string }>("/renders", {
+        document: template.document,
+        data: template.data,
+        engine,
+      });
+      if (!ownsRequest()) {
+        cancelRender(queued.id);
+        return;
+      }
+      request.jobId = queued.id;
+      const finished = await pollJob<RenderResult>(queued.id, M, ownsRequest);
+      if (!finished || !ownsRequest()) return;
+      if (finished.result.engine !== engine)
+        throw new Error("排版结果与所选引擎不一致");
+      if (editor.current.current?.contentKey !== signature) {
+        M("模板在排版期间已修改，请重新更新预览");
+        return;
+      }
+      setRendered({
+        templateId: template.id,
+        downloadName: template.name,
+        version: template.version,
+        engine,
+        contentKey: signature,
+        job: finished,
+      });
+      MODE("preview");
+      M("真实预览已生成 · " + finished.result.pages + " 页");
+    } catch (reason) {
+      if (ownsRequest()) {
+        E(reason.message);
+        M("");
+      }
+    } finally {
+      if (renderRequest.current === request) {
+        renderRequest.current = null;
+        setRendering(false);
+      }
+    }
+  }
+
+  async function convert(
+    file: File,
+    target: Pick<TemplateSet, "id" | "name">,
+    resumeJobId?: string,
+  ) {
+    if (converting.current) return;
+    converting.current = true;
+    let jobId = resumeJobId;
+    const report = { fileName: file.name, target };
+    const progress = (message: string) =>
+      setConversionTask({ phase: "running", ...report, progress: message });
+    progress(jobId ? "正在查询转换结果" : "正在上传报告");
+    try {
+      if (!jobId) {
+        const form = new FormData();
+        form.append("file", file);
+        const suffix = " · AI 模板";
+        const basename = Array.from(file.name.replace(/\.docx$/i, ""))
+          .slice(0, 100 - suffix.length)
+          .join("");
+        const query = new URLSearchParams({
+          set_id: target.id,
+          name: (basename || "报告") + suffix,
         });
-        const result = await poll(j.id);
-        J(result);
-        SN(snap);
-        MODE("preview");
-        M("真实预览已生成 · " + result.result.pages + " 页");
-      } finally {
-        BUSY(false);
+        jobId = (await api<{ id: string }>("/conversions?" + query, form)).id;
+      }
+      const finished = await pollJob<{ template_id: string }>(jobId, progress);
+      const id = finished.result.template_id;
+      const [template, review] = await Promise.all([
+        api<Template>("/templates/" + id),
+        api<ConversionReview | null>("/templates/" + id + "/review"),
+      ]);
+      if (!review) throw new Error("转换完成，但暂时无法读取审核内容。");
+      setReviews((previous) => ({
+        ...previous,
+        [id]: review,
+      }));
+      updateTemplate(template);
+      setConversionTask({ phase: "complete", ...report, template });
+    } catch (reason) {
+      setConversionTask({
+        phase: "failed",
+        file,
+        target,
+        error: reason instanceof Error ? reason.message : "转换失败，请重试。",
+        resumeJobId: reason instanceof JobFailedError ? undefined : jobId,
+      });
+    } finally {
+      converting.current = false;
+    }
+  }
+
+  async function markReview(
+    templateId: string,
+    index: number,
+    reviewed: boolean,
+  ) {
+    const updated = await api<Pick<ConversionReview, "reviewed_indices">>(
+      "/templates/" + templateId + "/review/" + index,
+      { reviewed },
+      "PUT",
+    );
+    setReviews((previous) => {
+      const current = previous[templateId];
+      return current
+        ? { ...previous, [templateId]: { ...current, ...updated } }
+        : previous;
+    });
+  }
+
+  const openReview = (id: string) =>
+    run(async () => {
+      if (editor.current.current?.template.id !== id && !(await open(id)))
+        return;
+      if (editor.current.current?.template.id === id)
+        showDialog({ kind: "review", templateId: id });
+    });
+
+  const listVersions = () =>
+    run(async () => {
+      const active = editor.current.current;
+      if (!active) return;
+      const intent = ++dialogIntent.current;
+      const versions = await api<TemplateSummary[]>(
+        "/templates/" + active.template.id + "/versions",
+      );
+      if (
+        dialogIntent.current === intent &&
+        editor.current.current?.key === active.key
+      ) {
+        showDialog({ kind: "versions", sessionKey: active.key, versions });
       }
     });
-  const convert = async (file: File) => {
-    BUSY(true);
-    try {
-      const form = new FormData();
-      form.append("file", file);
-      const j = await api(
-        "/conversions?set_id=" +
-          setId +
-          "&name=" +
-          encodeURIComponent(file.name.replace(/\.docx$/i, "") + " · AI 模板"),
-        form,
-      );
-      const result = await poll(j.id);
-      await refresh();
-      await open(result.result.template_id);
-      REV(result.result);
-      MOD("review");
-      M("转换完成，请逐项审核");
-    } finally {
-      BUSY(false);
+
+  async function restoreVersion(
+    version: number,
+    restoring: Extract<Dialog, { kind: "versions" }>,
+  ) {
+    const active = editor.current.current;
+    if (active?.key !== restoring.sessionKey) return;
+    const intent = ++dialogIntent.current;
+    const old = await api<DraftContent>(
+      "/templates/" + active.template.id + "/versions/" + version,
+    );
+    if (
+      dialogIntent.current !== intent ||
+      editor.current.current?.key !== active.key
+    )
+      return;
+    if (editor.current.current.contentKey !== active.contentKey) {
+      M("模板在读取历史版本期间已修改，请重新选择要恢复的版本");
+      return;
     }
-  };
-  const outline = (nodes: any[], depth = 0): any =>
-    nodes.map((n) => (
-      <React.Fragment key={n.id}>
-        <button
-          className={"tree-node " + (selected === n.id ? "active" : "")}
-          style={{ paddingLeft: 12 + depth * 15 }}
-          onClick={() => SEL(n.id)}
-          onDragOver={(e) => e.preventDefault()}
-          onDrop={(e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            const c = [...boot.presets, ...custom].find(
-              (c) => c.id === e.dataTransfer.getData("component"),
-            );
-            if (c) insert(c, n.id);
-          }}
-        >
-          {icon(n.kind)}
-          <span>{n.label || n.text || names[n.kind]}</span>
-          <small>{n.kind === "heading" ? "H" + n.level : ""}</small>
-        </button>
-        {outline(n.children, depth + 1)}
-      </React.Fragment>
-    ));
-  const styleField = (label: string, key: string, type = "number") => (
-    <label>
-      {label}
-      <input
-        type={type}
-        placeholder="继承 DS 样式"
-        value={node.style[key] ?? ""}
-        onChange={(e) =>
-          patch({
-            style: {
-              ...node.style,
-              [key]:
-                e.target.value === ""
-                  ? null
-                  : type === "number"
-                    ? Number(e.target.value)
-                    : e.target.value,
-            },
-          })
-        }
-      />
-    </label>
+    edit((draft) => Object.assign(draft, contentOf(old)), active.key);
+    showDialog(null);
+    M("已恢复到编辑区，保存后形成新版本");
+  }
+
+  const canRender =
+    !!tpl && !rendering && !pendingEngine && !!engineOption?.available;
+  const outline = (
+    nodes: ReportNode[],
+    depth = 0,
+    panel = "outline",
+  ): React.ReactNode =>
+    nodes.map((n) => {
+      const zone = panel + ":" + n.id;
+      return (
+        <React.Fragment key={n.id}>
+          <button
+            type="button"
+            className={
+              "tree-node component-drop-anchor" +
+              (selected === n.id ? " active" : "") +
+              dropClass(zone)
+            }
+            style={{ paddingLeft: 12 + depth * 15 }}
+            aria-pressed={selected === n.id}
+            aria-controls={
+              selected === n.id ? "component-properties" : undefined
+            }
+            onClick={(event) => selectForEdit(n.id, event.detail === 0)}
+            {...dropAttributes(zone, (event) => ({
+              kind: edgeAt(
+                event.clientY,
+                event.currentTarget.getBoundingClientRect(),
+                containerKinds.has(n.kind),
+              ),
+              nodeId: n.id,
+            }))}
+          >
+            {icon(n.kind)}
+            <span>{nodeName(n)}</span>
+            <small>{n.kind === "heading" ? "H" + n.level : ""}</small>
+          </button>
+          {outline(n.children, depth + 1, panel)}
+        </React.Fragment>
+      );
+    });
+  const styleField = (label: string, key: keyof typeof numericStyles) => (
+    <NumberParameter
+      key={node.id + ":" + key + ":" + styleReset}
+      label={label}
+      value={node.style[key]}
+      placeholder="继承 DS 样式"
+      allowEmpty
+      {...numericStyles[key]}
+      update={(value) => patch({ style: { ...node.style, [key]: value } })}
+    />
   );
   if (!boot)
     return <div className="loading">正在打开 DocxSpec Studio…{error}</div>;
@@ -457,24 +1080,75 @@ function App() {
           <em>模板工作台</em>
         </div>
         <div className="header-actions">
-          <span className="save-state">{dirty ? "● 未保存" : "✓ 已保存"}</span>
-          <button disabled={!tpl} onClick={() => run(save)}>
+          <span className="save-state">
+            {tpl ? (dirty ? "● 未保存" : "✓ 已保存") : ""}
+          </span>
+          {session && editor.drafts.length > 0 && (
+            <DraftRecovery
+              drafts={editor.drafts}
+              serverVersion={session.savedVersion}
+              recover={recoverDraft}
+            />
+          )}
+          <button
+            disabled={!tpl || saving === session?.key}
+            onClick={() => run(save)}
+          >
             <FloppyDisk />
             保存
           </button>
-          <button className="primary" disabled={!tpl || busy} onClick={preview}>
+          <button
+            className="primary"
+            disabled={!canRender}
+            title={!engineOption?.available ? engineOption?.reason : undefined}
+            onClick={preview}
+          >
             <Play />
-            {busy ? "处理中…" : "更新预览"}
+            {rendering ? "处理中…" : "更新预览"}
           </button>
         </div>
       </header>
-      <div className="workspace">
+      <nav className="workspace-switch" aria-label="工作区面板">
+        <button
+          type="button"
+          aria-pressed={panel === "browse"}
+          onClick={() => setPanel("browse")}
+        >
+          模板与结构
+        </button>
+        <button
+          type="button"
+          aria-pressed={panel === "document"}
+          onClick={() => setPanel("document")}
+        >
+          画布与组件
+        </button>
+        <button
+          type="button"
+          aria-pressed={panel === "properties"}
+          disabled={!tpl}
+          onClick={() => setPanel("properties")}
+        >
+          属性
+        </button>
+      </nav>
+      <div
+        className="workspace"
+        data-panel={panel}
+        data-template={tpl ? "yes" : "no"}
+      >
         <aside className="navigation">
           <div className="section-head">
             <span>模板管理</span>
-            <button aria-label="新建模板集" onClick={createSet}>
-              <Plus />
-            </button>
+            {boot.sets.length > 0 && (
+              <button
+                aria-label="添加模板集"
+                title="新建模板集"
+                onClick={createSet}
+              >
+                <Plus />
+              </button>
+            )}
           </div>
           <div className="sets">
             {boot.sets.map((s: any) => (
@@ -482,8 +1156,8 @@ function App() {
                 <button
                   className={"set " + (s.id === setId ? "selected" : "")}
                   onClick={() => {
+                    ++navigation.current;
                     S(s.id);
-                    ENGINE(s.engine);
                   }}
                 >
                   <Stack />
@@ -510,14 +1184,24 @@ function App() {
               <p className="hint">先创建模板集，集中管理报告模板和组件。</p>
             )}
           </div>
-          <button className="new-template" onClick={createTemplate}>
-            <Plus />
-            新建模板
-          </button>
+          {setId ? (
+            <button className="new-template" onClick={createTemplate}>
+              <Plus />
+              新建模板
+            </button>
+          ) : (
+            <button
+              className="new-template first-set-in-nav"
+              onClick={createSet}
+            >
+              <Plus />
+              新建模板集
+            </button>
+          )}
           <button
             className="ai-button"
-            disabled={!setId || busy}
-            onClick={() => MOD("ai")}
+            disabled={!setId}
+            onClick={() => showDialog({ kind: "ai", setId })}
           >
             <MagicWand />
             AI 转化模板
@@ -535,38 +1219,37 @@ function App() {
               <FileText />
               <strong>{tpl?.name || "创建你的报告模板"}</strong>
               {tpl && <span className="badge">v{tpl.version}</span>}
+              {tpl && tpl.version !== session.savedVersion && (
+                <span className="badge" title="可用“复制模板”另存此草稿">
+                  服务器 v{session.savedVersion}
+                </span>
+              )}
+              {tpl && currentSet && tpl.set_id !== setId && (
+                <span className="badge">{currentSet.name}</span>
+              )}
             </div>
             <div>
               <button
                 title="撤销"
-                disabled={!undo.length}
-                onClick={() => {
-                  T(undo.at(-1));
-                  U(undo.slice(0, -1));
-                }}
+                disabled={!session?.undo.length}
+                onClick={editor.undo}
               >
                 <ArrowCounterClockwise />
               </button>
               <button
                 disabled={!tpl}
-                onClick={() => {
-                  JSONTEXT(JSON.stringify(tpl.data, null, 2));
-                  MOD("data");
-                }}
+                onClick={() =>
+                  showDialog({ kind: "data", sessionKey: session.key })
+                }
               >
                 测试数据
               </button>
-              <button
-                disabled={!tpl}
-                onClick={() =>
-                  run(async () => {
-                    REV(await api("/templates/" + tpl.id + "/versions"));
-                    MOD("versions");
-                  })
-                }
-              >
+              <button title="历史版本" disabled={!tpl} onClick={listVersions}>
                 <Clock />
               </button>
+              {currentReview && (
+                <button onClick={() => openReview(tpl.id)}>转换审核</button>
+              )}
             </div>
           </div>
           <div className="preview-toolbar">
@@ -587,18 +1270,10 @@ function App() {
             <select
               aria-label="排版引擎"
               value={engine}
+              disabled={!currentSet || !!pendingEngine}
               onChange={(e) => {
-                const value = e.target.value;
-                ENGINE(value);
-                J(null);
-                run(async () => {
-                  await api(
-                    "/sets/" + setId,
-                    { name: currentSet.name, engine: value },
-                    "PUT",
-                  );
-                  await refresh();
-                });
+                const value = e.currentTarget.value;
+                void run(() => changeEngine(value));
               }}
             >
               {boot.engines.map((e: any) => (
@@ -609,15 +1284,33 @@ function App() {
               ))}
             </select>
             <button
-              disabled={!job || stale}
-              onClick={() =>
-                window.open("/api/v2/artifacts/" + job.id + "/report.docx")
-              }
+              disabled={!job || stale || !!pendingEngine}
+              onClick={() => {
+                if (
+                  activePreview?.contentKey ===
+                    editor.current.current?.contentKey &&
+                  activePreview?.templateId ===
+                    editor.current.current?.template.id &&
+                  job &&
+                  !pendingEngine
+                ) {
+                  const query = new URLSearchParams({
+                    download_name: activePreview.downloadName,
+                    download_version: String(activePreview.version),
+                  });
+                  const link = document.createElement("a");
+                  link.href =
+                    "/api/v2/artifacts/" + job.id + "/report.docx?" + query;
+                  link.download = "";
+                  link.click();
+                }
+              }}
             >
               <DownloadSimple />
               DOCX
             </button>
           </div>
+          {job && mode === "preview" && <div ref={setPdfControls} />}
           {error && (
             <div className="error" role="alert">
               {error}
@@ -629,17 +1322,16 @@ function App() {
               {message}
             </div>
           )}
-          <div
-            className="canvas"
-            onDragOver={(e) => e.preventDefault()}
-            onDrop={(e) => {
-              const c = [...boot.presets, ...custom].find(
-                (c) => c.id === e.dataTransfer.getData("component"),
-              );
-              if (c && tpl) insert(c);
-            }}
-          >
-            {mode === "preview" ? (
+          {conversionTask && dialog?.kind !== "ai" && (
+            <ConversionNotice
+              task={conversionTask}
+              onOpenReview={openReview}
+              onOpenConversion={(id) => showDialog({ kind: "ai", setId: id })}
+              onDismiss={() => setConversionTask(undefined)}
+            />
+          )}
+          <div className="canvas">
+            {!tpl || mode === "preview" ? (
               job ? (
                 <>
                   <div className={"render-label " + (stale ? "stale" : "")}>
@@ -656,7 +1348,36 @@ function App() {
                       产物记录
                     </a>
                   </div>
-                  <PDF job={job} selected={selected} onSelect={SEL} />
+                  <PdfPreview
+                    key={job.id}
+                    job={job}
+                    controlsTarget={pdfControls}
+                    selected={selected}
+                    onSelect={(id, keyboard) => {
+                      if (locations.some(({ node }) => node.id === id))
+                        selectForEdit(id, keyboard);
+                    }}
+                    dropTarget={
+                      draggingComponent && !stale
+                        ? (id, zone) => {
+                            if (!locations.some(({ node }) => node.id === id))
+                              return;
+                            return {
+                              className:
+                                "component-drop-anchor" + dropClass(zone),
+                              ...dropAttributes(zone, (event) => ({
+                                kind: edgeAt(
+                                  event.clientY,
+                                  event.currentTarget.getBoundingClientRect(),
+                                  false,
+                                ),
+                                nodeId: id,
+                              })),
+                            };
+                          }
+                        : undefined
+                    }
+                  />
                   <p className="preview-note">
                     {job.result.field_status}
                     <br />
@@ -668,21 +1389,52 @@ function App() {
                   <div className="empty-icon">
                     <FileText size={40} />
                   </div>
-                  <h1>{tpl ? "让编辑与产出对应起来" : "从一套模板开始"}</h1>
+                  <h1>
+                    {tpl
+                      ? "生成报告预览"
+                      : browsingSet
+                        ? "在模板集中创建模板"
+                        : "创建第一个模板集"}
+                  </h1>
                   <p>
                     {tpl
                       ? "添加组件、修改属性，然后点击“更新预览”。"
-                      : "新建模板集和模板，拖入组件即可开始。"}
-                    <br />
-                    这里展示排版引擎生成的真实 PDF。
+                      : browsingSet
+                        ? "在「" +
+                          browsingSet.name +
+                          "」中创建模板，使用 DS 示例文档开始。"
+                        : "模板集用来管理报告模板、可复用组件和排版引擎。"}
                   </p>
-                  <span>
-                    {boot.engines.find((e: any) => e.id === engine)?.reason}
-                  </span>
-                  {tpl && (
+                  {tpl && !engineOption?.available && (
+                    <p className="engine-blocked">
+                      {engineOption?.name ?? "所选引擎"}在当前环境不可用。
+                      {availableEngine
+                        ? "可切换此模板集的排版引擎。"
+                        : "安装排版引擎后即可生成报告。"}
+                    </p>
+                  )}
+                  {!tpl ? (
                     <button
                       className="primary"
-                      disabled={busy}
+                      onClick={browsingSet ? createTemplate : createSet}
+                    >
+                      <Plus />
+                      {browsingSet ? "创建报告模板" : "新建模板集"}
+                    </button>
+                  ) : !engineOption?.available && availableEngine ? (
+                    <button
+                      className="primary"
+                      disabled={!!pendingEngine}
+                      onClick={() =>
+                        run(() => changeEngine(availableEngine.id))
+                      }
+                    >
+                      使用 {availableEngine.name} 排版
+                    </button>
+                  ) : (
+                    <button
+                      className="primary"
+                      disabled={!canRender}
                       onClick={preview}
                     >
                       <Play />
@@ -694,8 +1446,8 @@ function App() {
             ) : (
               <div className="structure-view">
                 <h2>组件结构</h2>
-                <p>拖入组件：选中容器时放入容器，选中普通组件时插入其后。</p>
-                {tpl && outline(tpl.document.nodes)}
+                <p>拖到组件上缘或下缘可在前后插入，拖到容器中间可放入容器。</p>
+                {tpl && outline(tpl.document.nodes, 0, "structure")}
                 {tpl && !tpl.document.nodes.length && (
                   <p>从下方组件库拖入第一个组件</p>
                 )}
@@ -705,8 +1457,29 @@ function App() {
           <div className="library">
             <div className="section-head">
               <strong>组件库</strong>
-              <span>拖入文档或点击添加 · 默认采用 DS 样式</span>
+              <span>默认采用 DS 样式</span>
             </div>
+            {tpl && (
+              <>
+                <small className="component-drop-hint">
+                  {draggingComponent
+                    ? dropIndicator
+                      ? insertionDescription(dropIndicator.point)
+                      : mode === "preview" &&
+                          job?.result.mapping.length &&
+                          !stale
+                        ? "拖到结构列表、当前预览标记或文档末尾"
+                        : "拖到结构列表或文档末尾"
+                    : "点击组件：" + insertionDescription(clickInsertion)}
+                </small>
+                <div
+                  className={"component-drop-append" + dropClass("append")}
+                  {...dropAttributes("append", () => ({ kind: "append" }))}
+                >
+                  拖到此处，添加到文档末尾
+                </div>
+              </>
+            )}
             <div className="component-list">
               {[...boot.presets, ...custom].map((c) => (
                 <button
@@ -714,8 +1487,11 @@ function App() {
                   className="component"
                   draggable={!!tpl}
                   disabled={!tpl}
-                  onDragStart={(e) => e.dataTransfer.setData("component", c.id)}
-                  onClick={() => insert(c)}
+                  onDragStart={(event) => startComponentDrag(event, c)}
+                  onDragEnd={endComponentDrag}
+                  onClick={(event) =>
+                    insert(c, clickInsertion, false, event.detail === 0)
+                  }
                 >
                   {icon(c.node.kind)}
                   <strong>{c.name}</strong>
@@ -730,11 +1506,17 @@ function App() {
         <aside className="inspector">
           <div className="section-head">
             <strong>{node ? "组件属性" : "模板属性"}</strong>
-            {node && <button onClick={() => SEL("")}>完成</button>}
+            {node && <button onClick={finishEditing}>完成</button>}
           </div>
           {tpl ? (
             node ? (
-              <div className="properties">
+              <div
+                className="properties"
+                id="component-properties"
+                ref={inspectorProperties}
+                key={node.id}
+                tabIndex={-1}
+              >
                 <div className="component-title">
                   {icon(node.kind)}
                   <h2>{names[node.kind]}</h2>
@@ -750,12 +1532,16 @@ function App() {
                   <button
                     title="复制"
                     onClick={() =>
-                      insert({
-                        id: node.component_id,
-                        name: node.label || names[node.kind],
-                        version: 1,
-                        node,
-                      })
+                      insert(
+                        {
+                          id: node.component_id,
+                          name: nodeName(node),
+                          version: node.component_version,
+                          node,
+                        },
+                        { kind: "after", nodeId: node.id },
+                        true,
+                      )
                     }
                   >
                     <Copy />
@@ -768,46 +1554,19 @@ function App() {
                   组件名称
                   <input
                     value={node.label}
+                    maxLength={100}
+                    placeholder={
+                      node.kind === "heading" ? "留空时使用标题内容" : undefined
+                    }
                     onChange={(e) => patch({ label: e.target.value })}
                   />
                 </label>
                 {["heading", "paragraph", "caption"].includes(node.kind) && (
-                  <label>
-                    内容
-                    <textarea
-                      aria-label="内容"
-                      rows={4}
-                      value={node.text}
-                      onChange={(e) => patch({ text: e.target.value })}
-                    />
-                    <small>
-                      数据占位写法：{"{{project.name}}"}；重复区块内使用 item。
-                    </small>
-                    <select
-                      aria-label="插入数据字段"
-                      value=""
-                      onChange={(e) => {
-                        if (e.target.value)
-                          patch({
-                            text: node.text + "{{" + e.target.value + "}}",
-                          });
-                      }}
-                    >
-                      <option value="">＋ 插入数据字段</option>
-                      {[
-                        ...new Set([
-                          ...paths(tpl.data),
-                          ...Object.values(tpl.data)
-                            .filter(Array.isArray)
-                            .flatMap((v: any) => paths(v[0], "item")),
-                        ]),
-                      ].map((p) => (
-                        <option key={p} value={p}>
-                          {p}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
+                  <ComponentContent
+                    value={node.text}
+                    fields={fields}
+                    onChange={(value) => patch({ text: value })}
+                  />
                 )}
                 {node.kind === "heading" && (
                   <label>
@@ -837,6 +1596,7 @@ function App() {
                                 "第" + (i + 1) + "行第" + (j + 1) + "列"
                               }
                               value={c}
+                              maxLength={30000}
                               onChange={(e) => {
                                 const rows = structuredClone(node.rows);
                                 rows[i][j] = e.target.value;
@@ -849,6 +1609,7 @@ function App() {
                     </div>
                     <div className="tools">
                       <button
+                        disabled={node.rows.length >= 200}
                         onClick={() =>
                           patch({
                             rows: [...node.rows, node.rows[0].map(() => "")],
@@ -858,6 +1619,7 @@ function App() {
                         ＋行
                       </button>
                       <button
+                        disabled={node.rows[0].length >= 20}
                         onClick={() =>
                           patch({
                             rows: node.rows.map((r: any) => [...r, ""]),
@@ -885,39 +1647,47 @@ function App() {
                         －列
                       </button>
                     </div>
-                    <label>
-                      各列宽度（厘米）
-                      <div className="tools">
-                        {node.rows[0].map((_: any, i: number) => (
-                          <input
-                            key={i}
-                            aria-label={"第" + (i + 1) + "列宽度"}
-                            type="number"
-                            step="0.1"
+                    <fieldset className="component-column-widths">
+                      <legend>各列宽度（厘米）</legend>
+                      <div className="component-column-inputs">
+                        {previewColumnWidths.map((width, index) => (
+                          <NumberParameter
+                            key={index}
+                            label={"第" + (index + 1) + "列宽度"}
+                            min={0}
+                            max={25}
+                            unit=" 厘米"
                             value={
-                              node.columns[i] ??
-                              (
-                                (tpl.document.page.width -
-                                  2 * tpl.document.page.margin) /
-                                node.rows[0].length
-                              ).toFixed(1)
+                              node.columns.length
+                                ? width
+                                : Number(width.toFixed(2))
                             }
-                            onChange={(e) => {
-                              const columns = node.columns.length
-                                ? [...node.columns]
-                                : node.rows[0].map(
-                                    () =>
-                                      (tpl.document.page.width -
-                                        2 * tpl.document.page.margin) /
-                                      node.rows[0].length,
-                                  );
-                              columns[i] = +e.target.value;
-                              patch({ columns });
+                            validate={(value) => {
+                              if (value <= 0) return "列宽必须大于 0 厘米。";
+                              const total = previewColumnWidths.reduce(
+                                (sum, item, i) =>
+                                  sum + (i === index ? value : item),
+                                0,
+                              );
+                              if (total > usableWidth + 0.01) {
+                                return (
+                                  "各列宽度合计不能超过 " +
+                                  Number(usableWidth.toFixed(2)) +
+                                  " 厘米。"
+                                );
+                              }
                             }}
+                            update={(value) =>
+                              patch({
+                                columns: previewColumnWidths.map((item, i) =>
+                                  i === index ? value : item,
+                                ),
+                              })
+                            }
                           />
                         ))}
                       </div>
-                    </label>
+                    </fieldset>
                     <label>
                       重复行数据路径
                       <input
@@ -926,18 +1696,14 @@ function App() {
                         onChange={(e) => patch({ rows_source: e.target.value })}
                       />
                     </label>
-                    <label>
-                      表头行数
-                      <input
-                        type="number"
-                        min="0"
-                        max="10"
-                        value={node.header_rows}
-                        onChange={(e) =>
-                          patch({ header_rows: +e.target.value })
-                        }
-                      />
-                    </label>
+                    <NumberParameter
+                      label="表头行数"
+                      min={0}
+                      max={10}
+                      integer
+                      value={node.header_rows}
+                      update={(value) => patch({ header_rows: value })}
+                    />
                   </>
                 )}
                 {node.kind === "caption" && (
@@ -952,19 +1718,20 @@ function App() {
                           请选择
                           {node.caption_type === "table" ? "表格" : "图片"}
                         </option>
-                        {flat(tpl.document.nodes)
-                          .filter(
-                            (n) =>
-                              n.kind ===
-                              (node.caption_type === "table"
-                                ? "table"
-                                : "image"),
-                          )
-                          .map((n) => (
-                            <option key={n.id} value={n.id}>
-                              {n.label || names[n.kind]} · {n.id.slice(0, 4)}
+                        {node.target &&
+                          !targets.some(
+                            (target) => target.id === node.target,
+                          ) && (
+                            <option value={node.target} disabled>
+                              原关联不可用 · 请重新选择
                             </option>
-                          ))}
+                          )}
+                        {targets.map((target) => (
+                          <option key={target.id} value={target.id}>
+                            {target.label || names[target.kind]} ·{" "}
+                            {target.id.slice(0, 4)}
+                          </option>
+                        ))}
                       </select>
                     </label>
                     <label>
@@ -1021,16 +1788,17 @@ function App() {
                       <input
                         type="file"
                         accept="image/*"
-                        onChange={(e) =>
-                          run(async () => {
-                            const f = e.target.files?.[0];
-                            if (!f) return;
-                            const form = new FormData();
-                            form.append("file", f);
-                            const a = await api("/assets", form);
-                            patch({ asset: a.id });
-                          })
-                        }
+                        onChange={(e) => {
+                          const file = e.currentTarget.files?.[0];
+                          e.currentTarget.value = "";
+                          if (file)
+                            void uploadImage(
+                              file,
+                              node.id,
+                              tpl.id,
+                              session.key,
+                            );
+                        }}
                       />
                     </label>
                     {node.asset && (
@@ -1039,87 +1807,145 @@ function App() {
                         src={"/api/v2/assets/" + node.asset}
                       />
                     )}
-                    <label>
-                      宽度（厘米）
-                      <input
-                        type="number"
-                        value={node.width}
-                        onChange={(e) => patch({ width: +e.target.value })}
-                      />
-                    </label>
+                    <NumberParameter
+                      label="宽度（厘米）"
+                      min={1}
+                      max={25}
+                      unit=" 厘米"
+                      value={node.width}
+                      update={(value) => patch({ width: value })}
+                    />
                   </>
                 )}
-                <h3>
-                  样式覆盖 <small>留空继承 DS</small>
-                </h3>
-                <div className="two-col">
-                  {styleField("字号（pt）", "size")}
-                  {styleField("字体", "font", "text")}
-                </div>
-                <label>
-                  对齐
-                  <select
-                    value={node.style.align || ""}
-                    onChange={(e) =>
-                      patch({
-                        style: { ...node.style, align: e.target.value || null },
-                      })
-                    }
-                  >
-                    <option value="">继承 DS 样式</option>
-                    <option value="left">左对齐</option>
-                    <option value="center">居中</option>
-                    <option value="right">右对齐</option>
-                    <option value="justify">两端对齐</option>
-                  </select>
-                </label>
-                <div className="two-col">
-                  {styleField("段前（pt）", "before")}
-                  {styleField("段后（pt）", "after")}
-                  {styleField("行距倍数", "line")}
-                  {styleField("颜色（HEX）", "color", "text")}
-                </div>
-                <label>
-                  加粗
-                  <select
-                    value={
-                      node.style.bold == null ? "" : String(node.style.bold)
-                    }
-                    onChange={(e) =>
-                      patch({
-                        style: {
-                          ...node.style,
-                          bold:
-                            e.target.value === ""
-                              ? null
-                              : e.target.value === "true",
-                        },
-                      })
-                    }
-                  >
-                    <option value="">继承 DS</option>
-                    <option value="true">加粗</option>
-                    <option value="false">常规</option>
-                  </select>
-                </label>
-                <button className="wide" onClick={() => patch({ style: {} })}>
-                  恢复 DS 默认样式
-                </button>
+                {([
+                  "heading",
+                  "paragraph",
+                  "caption",
+                  "table",
+                  "image",
+                ].includes(node.kind) ||
+                  (node.kind === "repeat" && node.empty === "placeholder")) && (
+                  <>
+                    <h3>
+                      {node.kind === "repeat"
+                        ? "空数据占位文字样式"
+                        : "样式覆盖"}
+                      <small>留空继承 DS</small>
+                    </h3>
+                    {node.kind !== "image" && (
+                      <div className="two-col">
+                        {styleField("字号（pt）", "size")}
+                        <label>
+                          字体
+                          <input
+                            value={node.style.font ?? ""}
+                            maxLength={80}
+                            placeholder="继承 DS 样式"
+                            onChange={(event) =>
+                              patch({
+                                style: {
+                                  ...node.style,
+                                  font: event.currentTarget.value || null,
+                                },
+                              })
+                            }
+                          />
+                        </label>
+                      </div>
+                    )}
+                    <label>
+                      对齐
+                      <select
+                        value={node.style.align || ""}
+                        onChange={(e) =>
+                          patch({
+                            style: {
+                              ...node.style,
+                              align: e.target.value || null,
+                            },
+                          })
+                        }
+                      >
+                        <option value="">继承 DS 样式</option>
+                        <option value="left">左对齐</option>
+                        <option value="center">居中</option>
+                        <option value="right">右对齐</option>
+                        <option value="justify">两端对齐</option>
+                      </select>
+                    </label>
+                    <div className="two-col">
+                      {styleField("段前（pt）", "before")}
+                      {styleField("段后（pt）", "after")}
+                      {node.kind !== "image" && styleField("行距倍数", "line")}
+                      {node.kind !== "image" && (
+                        <ColorParameter
+                          key={node.id + ":color:" + styleReset}
+                          value={node.style.color}
+                          update={(value) =>
+                            patch({ style: { ...node.style, color: value } })
+                          }
+                        />
+                      )}
+                    </div>
+                    {node.kind !== "image" && (
+                      <label>
+                        加粗
+                        <select
+                          value={
+                            node.style.bold == null
+                              ? ""
+                              : String(node.style.bold)
+                          }
+                          onChange={(e) =>
+                            patch({
+                              style: {
+                                ...node.style,
+                                bold:
+                                  e.target.value === ""
+                                    ? null
+                                    : e.target.value === "true",
+                              },
+                            })
+                          }
+                        >
+                          <option value="">继承 DS</option>
+                          <option value="true">加粗</option>
+                          <option value="false">常规</option>
+                        </select>
+                      </label>
+                    )}
+                    <button
+                      className="wide"
+                      onClick={() => {
+                        patch({ style: {} });
+                        setStyleReset((current) => current + 1);
+                      }}
+                    >
+                      恢复 DS 默认样式
+                    </button>
+                  </>
+                )}
                 <button
                   className="primary wide"
                   onClick={() =>
                     run(async () => {
-                      const name = prompt(
-                        "新组件名称",
-                        node.label || names[node.kind],
-                      );
+                      const name = prompt("新组件名称", nodeName(node));
                       if (name) {
-                        await api("/components", {
-                          set_id: tpl.set_id,
+                        const owner = tpl.set_id;
+                        const saved = await api<Component>("/components", {
+                          set_id: owner,
                           name,
                           node,
                         });
-                        C(await api("/components?set_id=" + setId));
+                        C((previous) => ({
+                          ...previous,
+                          [owner]: [
+                            ...(previous[owner] ?? []).filter(
+                              (c) => c.id !== saved.id,
+                            ),
+                            saved,
+                          ],
+                        }));
                         M("已保存为新组件");
                       }
                     })
@@ -1179,36 +2005,11 @@ function App() {
                   选择左侧组件即可编辑内容和样式。插入组件时，默认使用内置 DS
                   母版。
                 </p>
-                <button
-                  className="wide"
-                  onClick={() =>
-                    run(async () => {
-                      const t = await api("/templates", {
-                        name: tpl.name + " · 副本",
-                        set_id: tpl.set_id,
-                        document: tpl.document,
-                        data: tpl.data,
-                      });
-                      await refresh();
-                      await open(t.id);
-                    })
-                  }
-                >
+                <button className="wide" onClick={copyTemplate}>
                   <Copy />
                   复制模板
                 </button>
-                <button
-                  className="wide danger"
-                  onClick={() =>
-                    run(async () => {
-                      if (confirm("归档此模板？历史版本会保留。")) {
-                        await api("/templates/" + tpl.id, undefined, "DELETE");
-                        T(null);
-                        await refresh();
-                      }
-                    })
-                  }
-                >
+                <button className="wide danger" onClick={archiveTemplate}>
                   归档模板
                 </button>
               </div>
@@ -1218,131 +2019,92 @@ function App() {
           )}
         </aside>
       </div>
-      {modal && (
-        <div className="modal-backdrop">
-          <section className="modal">
-            <div className="section-head">
-              <h2>
-                {
-                  {
-                    data: "测试数据",
-                    ai: "AI 转化模板",
-                    review: "转换审核",
-                    versions: "历史版本",
-                  }[modal]
+      {dialog && (
+        <StudioDialog
+          key={dialog.kind}
+          title={
+            {
+              data: "测试数据",
+              ai: "AI 转化模板",
+              review: "转换审核",
+              versions: "历史版本",
+              "create-set": "新建模板集",
+              "create-template": "新建报告模板",
+            }[dialog.kind]
+          }
+          onClose={() => showDialog(null)}
+        >
+          {(dialog.kind === "create-set" ||
+            dialog.kind === "create-template") && (
+            <TemplateSetup
+              kind={dialog.kind}
+              setName={
+                dialog.kind === "create-template"
+                  ? boot.sets.find((set) => set.id === dialog.setId)?.name
+                  : undefined
+              }
+              engines={boot.engines}
+              onCreate={(name, engine) =>
+                submitSetup(dialog.kind, name, engine)
+              }
+            />
+          )}
+          {dialog.kind === "data" && session?.key === dialog.sessionKey && (
+            <TestDataEditor
+              data={tpl.data}
+              onApply={(data) => {
+                edit((draft) => {
+                  draft.data = data;
+                }, dialog.sessionKey);
+                showDialog(null);
+              }}
+            />
+          )}
+          {dialog.kind === "ai" && conversionTarget && (
+            <ConversionUpload
+              key={conversionTarget.id}
+              target={conversionTarget}
+              model={boot.ai}
+              task={conversionTask}
+              onStart={(file, target, jobId) =>
+                void convert(file, target, jobId)
+              }
+              onOpenReview={openReview}
+            />
+          )}
+          {dialog.kind === "review" &&
+            dialog.templateId === tpl?.id &&
+            currentReview && (
+              <ReviewWorkspace
+                key={tpl.id}
+                review={currentReview}
+                nodes={locations.map(({ node }) => node)}
+                onLocate={(id) => {
+                  showDialog(null);
+                  selectComponent(id);
+                }}
+                onMark={(index, reviewed) =>
+                  markReview(tpl.id, index, reviewed)
                 }
-              </h2>
-              <button onClick={() => MOD("")}>关闭</button>
-            </div>
-            {modal === "data" && (
-              <>
-                <p>用于预览和导出的示例数据，与模板一同保存。</p>
-                <textarea
-                  className="json"
-                  value={json}
-                  onChange={(e) => JSONTEXT(e.target.value)}
-                />
+              />
+            )}
+          {dialog.kind === "versions" &&
+            dialog.versions.map((version) => (
+              <div className="version" key={version.version}>
+                <span>
+                  v{version.version} · {version.name} ·{" "}
+                  {new Date(version.updated).toLocaleString()}
+                </span>
                 <button
-                  className="primary"
                   onClick={() =>
-                    run(async () => {
-                      const d = JSON.parse(json);
-                      if (!d || Array.isArray(d) || typeof d !== "object")
-                        throw Error("测试数据必须为对象");
-                      edit((t) => (t.data = d));
-                      MOD("");
-                    })
+                    run(() => restoreVersion(version.version, dialog))
                   }
                 >
-                  应用数据
+                  恢复到编辑区
                 </button>
-              </>
-            )}
-            {modal === "ai" && (
-              <>
-                <p>
-                  选择已有 DOCX 测试报告。AI
-                  分析正文和表格，生成固定内容、字段及重复区块；样式统一采用 DS
-                  母版。
-                </p>
-                <div className="notice">
-                  {boot.ai.configured
-                    ? "将把提取的报告文字和表格发送到 " +
-                      boot.ai.destination +
-                      "，模型：" +
-                      boot.ai.model
-                    : "尚未配置模型服务。请在启动服务前设置 STUDIO_AI_BASE_URL、STUDIO_AI_MODEL 和 STUDIO_AI_API_KEY。"}
-                </div>
-                <p>
-                  当前不会迁移源文档图片、浮动对象和源样式。转换后必须审核，未归类的文字会保留。
-                </p>
-                <input
-                  disabled={!boot.ai.configured || busy}
-                  type="file"
-                  accept=".docx"
-                  onChange={(e) =>
-                    run(async () => {
-                      if (dirty) await save();
-                      const f = e.target.files?.[0];
-                      if (f) await convert(f);
-                    })
-                  }
-                />
-              </>
-            )}
-            {modal === "review" && (
-              <>
-                <p>
-                  模板已创建。点击候选项定位组件，关闭此窗口后可在属性栏修改。
-                </p>
-                {reviews?.review?.map((r: any, i: number) => (
-                  <button
-                    className="review-row"
-                    key={i}
-                    onClick={() => {
-                      SEL(r.node_ids?.[0] || "");
-                      MOD("");
-                    }}
-                  >
-                    <strong>{r.decision || "待审核"}</strong>
-                    <span>{r.reason}</span>
-                  </button>
-                ))}
-                <details>
-                  <summary>提取的源内容</summary>
-                  <pre>{JSON.stringify(reviews?.source_blocks, null, 2)}</pre>
-                </details>
-              </>
-            )}
-            {modal === "versions" &&
-              reviews?.map((r: any) => (
-                <div className="version" key={r.version}>
-                  <span>
-                    v{r.version} · {r.name} ·{" "}
-                    {new Date(r.updated).toLocaleString()}
-                  </span>
-                  <button
-                    onClick={() =>
-                      run(async () => {
-                        const old = await api(
-                          "/templates/" + tpl.id + "/versions/" + r.version,
-                        );
-                        edit((t) => {
-                          t.document = old.document;
-                          t.data = old.data;
-                          t.name = old.name;
-                        });
-                        MOD("");
-                        M("已恢复到编辑区，保存后形成新版本");
-                      })
-                    }
-                  >
-                    恢复到编辑区
-                  </button>
-                </div>
-              ))}
-          </section>
-        </div>
+              </div>
+            ))}
+        </StudioDialog>
       )}
     </>
   );

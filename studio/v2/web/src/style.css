@@ -93,7 +93,13 @@ header {
 }
 .save-state {
   font-size: 11px;
-  color: #8491a7;
+  color: #586981;
+}
+.workspace-switch,
+.first-set-in-nav,
+.workspace[data-template="no"] .preview-toolbar,
+.workspace[data-template="no"] .library {
+  display: none;
 }
 .workspace {
   display: grid;
@@ -129,7 +135,7 @@ header {
 .section-head small {
   font-size: 10px;
   font-weight: 400;
-  color: #94a0b4;
+  color: #5c6e85;
 }
 .sets {
   max-height: 30vh;
@@ -210,7 +216,7 @@ header {
 }
 .hint {
   padding: 0 17px;
-  color: #8693a8;
+  color: #596b83;
   line-height: 1.8;
   font-size: 12px;
 }
@@ -306,7 +312,7 @@ main {
   text-align: center;
   max-width: 440px;
   margin: auto;
-  color: #8391a9;
+  color: #556781;
   gap: 8px;
 }
 .empty-icon {
@@ -332,6 +338,12 @@ main {
 .empty-preview > button {
   margin-top: 14px;
 }
+.engine-blocked {
+  color: #743d0d;
+  background: #fff1dd;
+  border-radius: 6px;
+  padding: 6px 10px;
+}
 .pdf-pages {
   max-width: 800px;
   margin: auto;
@@ -343,8 +355,10 @@ main {
   box-shadow: 0 2px 12px #d1d9e8;
 }
 .pdf-page canvas {
+  position: absolute;
+  inset: 0;
   width: 100%;
-  display: block;
+  height: 100%;
 }
 .pdf-hit {
   position: absolute;
@@ -364,7 +378,7 @@ main {
   max-width: 800px;
   margin: 0 auto 14px;
   font-size: 11px;
-  color: #7b89a2;
+  color: #52647e;
   display: flex;
   justify-content: space-between;
   gap: 8px;
@@ -380,7 +394,7 @@ main {
 }
 .preview-note {
   font-size: 11px;
-  color: #8490a7;
+  color: #52647e;
   line-height: 1.8;
   max-width: 800px;
   margin: auto;
@@ -414,7 +428,7 @@ main {
 }
 .library .section-head > span {
   font-size: 11px;
-  color: #96a1b5;
+  color: #5c6e85;
   font-weight: 400;
 }
 .component-list {
@@ -444,8 +458,8 @@ main {
   white-space: nowrap;
 }
 .component small {
-  font-size: 9px;
-  color: #98a4b8;
+  font-size: 10px;
+  color: #5c6e85;
 }
 .inspector > .section-head {
   height: 53px;
@@ -513,7 +527,7 @@ label small {
   display: block;
   font-size: 10px;
   line-height: 1.7;
-  color: #99a4b7;
+  color: #5c6e85;
   margin-top: 7px;
 }
 .two-col {
@@ -530,7 +544,7 @@ label small {
 .properties h3 small {
   font-size: 10px;
   font-weight: 400;
-  color: #96a2b6;
+  color: #5c6e85;
   margin-left: 8px;
 }
 .properties .hint {
@@ -578,25 +592,21 @@ label small {
   background: #f3f9f6;
   padding: 7px 20px;
 }
-.modal-backdrop {
-  position: fixed;
-  inset: 0;
-  z-index: 50;
-  background: #13213c66;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 30px;
-}
 .modal {
   background: white;
+  color: inherit;
+  border: 1px solid #dce2ed;
   border-radius: 12px;
-  max-width: 760px;
-  width: 100%;
-  max-height: 85vh;
+  width: min(760px, calc(100% - 24px));
+  max-width: 100%;
+  max-height: min(85vh, calc(100dvh - 24px));
+  margin: auto;
   overflow: auto;
   padding: 15px 25px 25px;
   box-shadow: 0 20px 80px #17264744;
+}
+.modal::backdrop {
+  background: #13213c66;
 }
 .modal .section-head {
   padding: 0 0 12px;
@@ -606,34 +616,64 @@ label small {
   font-size: 19px;
 }
 .modal p {
-  color: #718099;
+  color: #586981;
   line-height: 1.9;
   font-size: 12px;
 }
-.json {
-  font-family: monospace;
-  min-height: 330px;
-  margin: 20px 0;
+.modal .form-error {
+  color: #a92719;
+  font-size: 13px;
 }
-.notice {
-  background: #f1f5ff;
-  color: #4265ad;
-  padding: 15px;
-  border-radius: 6px;
-  line-height: 1.7;
+.dialog-primary {
+  margin-top: 18px;
+}
+.data-modes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 12px 0;
+}
+.data-modes button[aria-pressed="true"],
+.workspace-switch button[aria-pressed="true"] {
+  color: #1545b4;
+  background: #eaf0ff;
+  border-color: #89a8ef;
+}
+.data-group,
+.data-record {
+  min-inline-size: 0;
+  border: 1px solid #dce2ed;
+  border-radius: 8px;
+  margin: 12px 0;
+  padding: 6px 12px 12px;
   overflow-wrap: anywhere;
 }
-.review-row {
-  display: flex;
-  text-align: left;
-  width: 100%;
-  justify-content: flex-start;
-  margin: 12px 0;
-  padding: 15px;
+.data-record {
+  background: #f7f9fd;
 }
-.review-row span {
-  font-size: 12px;
-  color: #76849b;
+.data-record > .data-group {
+  border: 0;
+  padding: 0;
+}
+.data-record > .data-group > legend {
+  display: none;
+}
+.data-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.data-checkbox input {
+  width: auto;
+  margin: 0;
+}
+.data-record button {
+  margin-top: 10px;
+}
+.json {
+  font-family: monospace;
+  min-height: min(35dvh, 330px);
+  margin: 16px 0 8px;
 }
 .version {
   display: flex;
@@ -676,18 +716,58 @@ pre {
   }
 }
 @media (max-width: 800px) {
+  .workspace-switch {
+    height: 46px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px;
+    background: white;
+    border-bottom: 1px solid #e1e6ef;
+  }
+  .workspace-switch button {
+    flex: 1;
+    min-width: 0;
+    padding-inline: 4px;
+  }
   .workspace {
-    grid-template-columns: 170px minmax(330px, 1fr);
+    display: flex;
+    flex-direction: column;
+    height: calc(100dvh - 110px);
+    min-width: 0;
+  }
+  .workspace > .navigation,
+  .workspace > main,
+  .workspace > .inspector {
+    display: none;
+    min-width: 0;
+    min-height: 0;
+    width: 100%;
+    flex: 1;
+  }
+  .workspace[data-panel="browse"] > .navigation,
+  .workspace[data-panel="document"] > main,
+  .workspace[data-panel="properties"] > .inspector {
+    display: flex;
+  }
+  .first-set-in-nav {
+    display: inline-flex;
+  }
+  .document-bar {
     height: auto;
-    min-height: calc(100vh - 64px);
+    min-height: 48px;
+    padding: 6px 10px;
+    flex-wrap: wrap;
+    gap: 4px;
   }
-  main {
-    height: calc(100vh - 64px);
+  .document-bar > div {
+    min-width: 0;
+    flex-wrap: wrap;
+    overflow-wrap: anywhere;
   }
-  .inspector {
-    grid-column: 1/-1;
-    min-height: 240px;
-    border-top: 1px solid #ddd;
+  .preview-toolbar {
+    flex-wrap: wrap;
+    gap: 6px;
   }
   .properties {
     max-width: 600px;
@@ -711,5 +791,28 @@ pre {
   }
   .library .section-head > span {
     display: none;
+  }
+  .modal {
+    padding-inline: 16px;
+  }
+  .modal .section-head {
+    flex-wrap: wrap;
+  }
+}
+@media (max-width: 420px) {
+  header {
+    padding-inline: 8px;
+  }
+  .brand {
+    gap: 6px;
+  }
+  .brand strong span {
+    display: none;
+  }
+  header:has(.draft-recovery) .brand strong {
+    display: none;
+  }
+  .header-actions button {
+    padding-inline: 6px;
   }
 }
