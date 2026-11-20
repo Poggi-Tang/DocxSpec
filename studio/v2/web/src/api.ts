@@ -1,3 +1,5 @@
+import type { DraftContent } from "./document";
+
 export async function api<T = any>(
   path: string,
   body?: unknown,
@@ -18,6 +20,36 @@ export async function api<T = any>(
     );
   }
   return value;
+}
+
+export async function downloadTemplateBundle(
+  draft: Pick<DraftContent, "name" | "document">,
+): Promise<void> {
+  const response = await fetch("/api/v2/template-bundles", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name: draft.name, document: draft.document }),
+  });
+  if (!response.ok) {
+    const value = await response.json().catch(() => null);
+    throw new Error(
+      typeof value?.detail === "string"
+        ? value.detail
+        : "模板包导出失败，请检查模板内容和本机存储。",
+    );
+  }
+
+  const disposition = response.headers.get("Content-Disposition") ?? "";
+  const encoded = /filename\*=utf-8''([^;]+)/i.exec(disposition)?.[1];
+  const name = encoded
+    ? decodeURIComponent(encoded)
+    : (/filename="([^"]+)"/i.exec(disposition)?.[1] ?? "模板包.zip");
+  const url = URL.createObjectURL(await response.blob());
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = name;
+  link.click();
+  window.setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
 const jobMessages: Record<string, string> = {

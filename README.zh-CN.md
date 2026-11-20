@@ -149,7 +149,27 @@ table_container.add_table(
 
 ## 浏览器编辑器 Studio
 
-日常启动无需 Node.js：
+[Studio V2](studio/v2/README.md) 与 Python 共用报告编译器。先在 Studio
+点击「导出模板包」，导出当前组件模板及引用的固定图片。业务数据由 Python 单独传入。
+
+```bash
+python -m pip install "docxspec[report]"
+```
+
+```python
+import json
+from pathlib import Path
+
+from docxspec.report import render_report
+
+data = json.loads(Path("data.json").read_text(encoding="utf-8"))
+render_report("模板.zip", data, "验收报告.docx")
+```
+
+Python 生成 DOCX 时沿用 Studio 的内容、编号、DS 样式和页面设置，可以脱离 Studio
+和 Office 运行。实际排版、PDF 预览及 AI 转换可以按需在 Studio 使用。
+
+Studio V1 可直接启动，无需 Node.js：
 
 ```powershell
 python -m pip install -e .

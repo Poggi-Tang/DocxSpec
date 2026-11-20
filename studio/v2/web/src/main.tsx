@@ -18,7 +18,13 @@ import {
   Clock,
   ArrowCounterClockwise,
 } from "@phosphor-icons/react";
-import { api, JobFailedError, pollJob, type Job } from "./api";
+import {
+  api,
+  downloadTemplateBundle,
+  JobFailedError,
+  pollJob,
+  type Job,
+} from "./api";
 import {
   availableFields,
   captionTargets,
@@ -163,6 +169,7 @@ function App() {
     [rendered, setRendered] = useState<Preview>(),
     [rendering, setRendering] = useState(false),
     [saving, setSaving] = useState<symbol>(),
+    [exportingBundle, setExportingBundle] = useState(false),
     [pendingEngines, setPendingEngines] = useState<Record<string, string>>({}),
     [mode, MODE] = useState("preview"),
     [dialog, setDialogState] = useState<Dialog | null>(null),
@@ -446,6 +453,20 @@ function App() {
       }
     } finally {
       setSaving((current) => (current === key ? undefined : current));
+    }
+  }
+
+  async function exportBundle() {
+    const active = editor.current.current;
+    if (!active || exportingBundle) return;
+    if (pendingImages(active.key).length) {
+      throw new Error("请等待图片上传完成后再导出模板包。");
+    }
+    setExportingBundle(true);
+    try {
+      await downloadTemplateBundle(active.template);
+    } finally {
+      setExportingBundle(false);
     }
   }
 
@@ -1308,6 +1329,14 @@ function App() {
             >
               <DownloadSimple />
               DOCX
+            </button>
+            <button
+              disabled={!tpl || exportingBundle}
+              title="导出当前模板和引用的固定图片"
+              onClick={() => void run(exportBundle)}
+            >
+              <DownloadSimple />
+              {exportingBundle ? "正在导出…" : "导出模板包"}
             </button>
           </div>
           {job && mode === "preview" && <div ref={setPdfControls} />}

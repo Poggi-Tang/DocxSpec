@@ -132,7 +132,30 @@ A typical workflow is:
 
 ## DocxSpec Studio
 
-Run the local browser editor without Node.js:
+[Studio V2](studio/v2/README.md) and Python use the same report compiler. Select
+**导出模板包** in Studio V2 to export the current component template and its
+referenced static images. Pass your report data separately:
+
+```bash
+python -m pip install "docxspec[report]"
+```
+
+```python
+import json
+from pathlib import Path
+
+from docxspec.report import render_report
+
+data = json.loads(Path("data.json").read_text(encoding="utf-8"))
+render_report("template.zip", data, "report.docx")
+```
+
+The report API uses the same content, numbering, styles, and page settings as
+Studio V2. DOCX generation runs without an Office engine. Office layout, PDF
+preview, and AI conversion are available from Studio with their respective
+dependencies.
+
+Run Studio V1 without Node.js:
 
 ```bash
 python -m pip install -e .

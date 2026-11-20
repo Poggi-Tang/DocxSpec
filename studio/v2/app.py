@@ -4,14 +4,19 @@ import argparse
 import hashlib
 import io
 import json
+import re
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
 from pathlib import Path
+from tempfile import TemporaryDirectory
 
 from fastapi import FastAPI, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
+from starlette.background import BackgroundTask
+
+from docxspec.report import export_template_bundle
 
 from .compiler import compile_document
 from .conversion import ai_status, convert, extract_docx
@@ -41,6 +46,13 @@ class RenderInput(BaseModel):
     engine: str
 
 
+class TemplateBundleInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(min_length=1, max_length=100)
+    document: DocumentModel
+
+
 class ComponentInput(BaseModel):
     set_id: str
     name: str = Field(min_length=1, max_length=100)
@@ -49,6 +61,12 @@ class ComponentInput(BaseModel):
 
 class ReviewMark(BaseModel):
     reviewed: bool
+
+
+def download_label(name: str, fallback: str) -> str:
+    cleaned = re.sub(r'[<>:"/\\|?*\x00-\x1f\x7f]', "_", name[:200])
+    # Leave room for the suffix within common filesystem byte limits.
+    return cleaned.encode("utf-8")[:180].decode("utf-8", errors="ignore").strip(" .") or fallback
 
 
 def create_app(data_dir: Path):
@@ -138,6 +156,26 @@ def create_app(data_dir: Path):
     def new_template(body: TemplateInput):
         return store.save_template(None, body)
 
+    @app.post("/api/v2/template-bundles")
+    def download_template_bundle(body: TemplateBundleInput):
+        directory = TemporaryDirectory(prefix="docxspec-template-")
+        try:
+            output = export_template_bundle(
+                body.document,
+                Path(directory.name) / "template.zip",
+                name=body.name,
+                assets=store.root / "assets",
+            )
+        except Exception:
+            directory.cleanup()
+            raise
+        return FileResponse(
+            output,
+            media_type="application/zip",
+            filename=f"{download_label(body.name, '模板')}-模板包.zip",
+            background=BackgroundTask(directory.cleanup),
+        )
+
     @app.get("/api/v2/default")
     def default():
         return dict(document=initial_document(), data=initial_data())
@@ -212,8 +250,6 @@ def create_app(data_dir: Path):
 
     @app.get("/api/v2/assets/{key}")
     def asset(key: str):
-        import re
-
         if not re.fullmatch("[a-f0-9]{64}", key):
             raise HTTPException(404)
         p = store.root / "assets" / key
@@ -277,12 +313,7 @@ def create_app(data_dir: Path):
             raise HTTPException(404)
         suggested_name = filename
         if filename == "report.docx" and download_name and download_version is not None:
-            import re
-
-            cleaned = re.sub(r'[<>:"/\\|?*\x00-\x1f\x7f]', "_", download_name[:200])
-            # Leave room for the version suffix within common filesystem byte limits.
-            label = cleaned.encode("utf-8")[:180].decode("utf-8", errors="ignore").strip(" .")
-            suggested_name = f"{label or '报告'}-v{download_version}.docx"
+            suggested_name = f"{download_label(download_name, '报告')}-v{download_version}.docx"
         return FileResponse(store.root / "renders" / key / filename, filename=suggested_name)
 
     def ai_task(key, blocks, set_id, name):

@@ -43,6 +43,36 @@ python -m studio.v2.app
 
 组件保存为新的独立定义，插入的是快照，后续修改不会静默影响已有模板。图片资源不随组件保存；实例需要重新上传/绑定图片。旧版模板不会自动迁移，也不会修改旧版数据库。
 
+## 导出模板包并用 Python 生成报告
+
+打开模板后，点击工具栏「导出模板包」。ZIP 包含当前编辑内容和引用的固定图片，包括尚未保存的模板改动。测试数据、预览和 AI 审核记录留在 Studio。生成报告时，Python 单独读取业务数据。安装与导出端匹配的 DocxSpec 版本以保留相同的 DS 母版。
+
+```bash
+python -m pip install "docxspec[report]==0.1.0"
+```
+
+```python
+import json
+from pathlib import Path
+
+from docxspec.report import render_report
+
+data = json.loads(Path("data.json").read_text(encoding="utf-8"))
+render_report("验收模板-模板包.zip", data, "验收报告.docx")
+```
+
+如果图片组件绑定到数据字段，例如 `result.screenshot`，先将本次报告的图片注册到本地资源目录，再传入图片 ID：
+
+```python
+from docxspec.report import register_report_asset, render_report
+
+assets = Path("report-assets")
+data["result"]["screenshot"] = register_report_asset("screenshot.png", assets)
+render_report("验收模板-模板包.zip", data, "验收报告.docx", assets=assets)
+```
+
+Python 使用与 Studio 相同的组件和样式规则生成 DOCX。实际分页、PDF 预览和域缓存更新取决于所选排版引擎，见上方说明。
+
 ## AI 转化模板
 
 启动前配置 OpenAI-compatible 服务：
@@ -77,5 +107,7 @@ STUDIO_TEST_OFFICE=1 python -m pytest studio/v2/tests -q
 同一实例可运行 `python studio/v2/tests/browser_drafts.py` 验证多标签草稿和复制期间保存，以及 `python studio/v2/tests/browser_navigation.py` 验证延迟上传、归档、历史窗口和数字条件。
 
 `python studio/v2/tests/browser_ux.py` 覆盖首次创建、弹窗键盘操作、测试数据与窄屏编辑。`python studio/v2/tests/browser_components.py` 覆盖实际拖放、光标插入和样式校验。
+
+`python studio/v2/tests/browser_template_bundle.py` 验证通过工具栏导出模板包，以及用独立业务数据生成 DOCX。
 
 验证 AI 审核时，先运行 `python studio/v2/tests/browser_model_fixture.py`，再为测试用 Studio 设置 `STUDIO_AI_BASE_URL=http://127.0.0.1:4223/v1` 和 `STUDIO_AI_MODEL=browser-fixture`。启动 Studio 后用 `STUDIO_TEST_AI=1 python studio/v2/tests/browser_interactions.py` 执行完整交互回归。

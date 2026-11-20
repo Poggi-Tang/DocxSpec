@@ -28,5 +28,11 @@ jobs:
       - name: Build
         run: python -m build
 
+      - name: Test the packaged report API
+        run: |
+          wheel="$(find dist -name '*.whl' -print -quit)"
+          python -m pip install "${wheel}[report]" "pytest>=8"
+          python -m pytest tests/test_report_bundle.py -q
+
       - name: Publish
         uses: pypa/gh-action-pypi-publish@release/v1
