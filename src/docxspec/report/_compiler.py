@@ -76,10 +76,12 @@ def style_name(n):
     }.get(n["kind"], "DS正文")
 
 
-def expand(nodes, data, repeat_scope=(), result=None):
+def expand(nodes, data, repeat_scope=(), result=None, *, check_cancelled=None):
     if result is None:
         result = []
     for node in nodes:
+        if check_cancelled is not None:
+            check_cancelled()
         n = copy.deepcopy(node)
         n["origin_id"] = n["id"]
         n["repeat_scope"] = repeat_scope
@@ -91,17 +93,20 @@ def expand(nodes, data, repeat_scope=(), result=None):
             if not records and n["empty"] == "placeholder":
                 result.append({**n, "kind": "paragraph", "text": "数据待补充"})
             for i, item in enumerate(records):
-                expand(n["children"], {**data, "item": item}, (*repeat_scope, (n["id"], i)), result)
+                expand(
+                    n["children"], {**data, "item": item}, (*repeat_scope, (n["id"], i)), result,
+                    check_cancelled=check_cancelled,
+                )
         elif n["kind"] == "condition":
             value = lookup(data, n["source"])
             display = str(value).lower() if isinstance(value, bool) else str(value)
             if display == n["equals"]:
-                expand(n["children"], data, repeat_scope, result)
+                expand(n["children"], data, repeat_scope, result, check_cancelled=check_cancelled)
         elif n["kind"] == "group":
-            expand(n["children"], data, repeat_scope, result)
+            expand(n["children"], data, repeat_scope, result, check_cancelled=check_cancelled)
         elif n["kind"] == "section":
             result.append(n)
-            expand(n["children"], data, repeat_scope, result)
+            expand(n["children"], data, repeat_scope, result, check_cancelled=check_cancelled)
         else:
             if n["kind"] == "caption":
                 # A caption for an omitted table never needs its fields resolved.
@@ -137,6 +142,7 @@ def compile_document(
     output: Path,
     *,
     asset_resolver: Callable[[str], Path] | None = None,
+    check_cancelled: Callable[[], None] | None = None,
 ):
     api = WordAPI(str(DEFAULT_MASTER_TEMPLATE))
     doc = api.doc.get_docx()
@@ -166,7 +172,7 @@ def compile_document(
                 p.add_run(part)
     section.different_first_page_header_footer = False
     doc.settings.odd_and_even_pages_header_footer = False
-    nodes = expand([n.model_dump() for n in model.nodes], data)
+    nodes = expand([n.model_dump() for n in model.nodes], data, check_cancelled=check_cancelled)
     # Caption references follow actual expanded objects, never the array's selected index.
     chapter = 0
     counts = {}
@@ -189,6 +195,8 @@ def compile_document(
     anchors = []
     width = props.width - 2 * props.margin
     for index, n in enumerate(nodes):
+        if check_cancelled is not None:
+            check_cancelled()
         s = {k: v for k, v in n["style"].items() if v is not None}
         name = style_name(n)
         text_style = TextStyle(
@@ -317,6 +325,8 @@ def compile_document(
     doc.core_properties.author = "DocxSpec"
     doc.core_properties.last_modified_by = "DocxSpec"
     doc.core_properties.title = "测试报告"
+    if check_cancelled is not None:
+        check_cancelled()
     doc.save(output)
     mark_update_fields_on_open(output)
     return anchors

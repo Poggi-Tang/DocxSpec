@@ -29,6 +29,7 @@ from docx.shared import Cm, Pt, RGBColor
 from docxtpl import DocxTemplate
 from PIL import Image
 
+from ._xml_order import child_in_order
 from .template_styles import ensure_ds_styles
 from .word_styles import (
     BODY_STYLE,
@@ -49,6 +50,16 @@ from .word_styles import (
 TextValue = Union[str, int, float, None]
 PartConfig = dict[str, Any]
 TableConfig = dict[str, Any]
+
+_CELL_MARGIN_SUCCESSORS = (
+    "w:textDirection", "w:tcFitText", "w:vAlign", "w:hideMark", "w:headers",
+    "w:cellIns", "w:cellDel", "w:cellMerge", "w:tcPrChange",
+)
+_CELL_SHADING_SUCCESSORS = ("w:noWrap", "w:tcMar", *_CELL_MARGIN_SUCCESSORS)
+_TABLE_BORDER_SUCCESSORS = (
+    "w:shd", "w:tblLayout", "w:tblCellMar", "w:tblLook", "w:tblCaption",
+    "w:tblDescription", "w:tblPrChange",
+)
 
 
 class BlockTemplate:
@@ -638,10 +649,7 @@ class WordAPI:
         if not fill:
             return
         tc_pr = cell._tc.get_or_add_tcPr()
-        shading = tc_pr.find(qn("w:shd"))
-        if shading is None:
-            shading = OxmlElement("w:shd")
-            tc_pr.append(shading)
+        shading = child_in_order(tc_pr, "w:shd", _CELL_SHADING_SUCCESSORS)
         shading.set(qn("w:fill"), fill)
         shading.set(qn("w:val"), "clear")
 
@@ -662,10 +670,7 @@ class WordAPI:
         :param end: 右边距（单位：twips）
         """
         tc_pr = cell._tc.get_or_add_tcPr()
-        tc_margin = tc_pr.find(qn("w:tcMar"))
-        if tc_margin is None:
-            tc_margin = OxmlElement("w:tcMar")
-            tc_pr.append(tc_margin)
+        tc_margin = child_in_order(tc_pr, "w:tcMar", _CELL_MARGIN_SUCCESSORS)
         for key, value in {
             "top": top,
             "start": start,
@@ -697,10 +702,7 @@ class WordAPI:
         """
         width_dxa = WordAPI._cm_to_dxa(width_cm)
         tc_pr = cell._tc.get_or_add_tcPr()
-        tc_width = tc_pr.find(qn("w:tcW"))
-        if tc_width is None:
-            tc_width = OxmlElement("w:tcW")
-            tc_pr.append(tc_width)
+        tc_width = tc_pr.get_or_add_tcW()
         tc_width.set(qn("w:w"), str(width_dxa))
         tc_width.set(qn("w:type"), "dxa")
 
@@ -711,10 +713,7 @@ class WordAPI:
         :param table: python-docx 的 Table 对象
         """
         table_pr = table._tbl.tblPr
-        table_layout = table_pr.find(qn("w:tblLayout"))
-        if table_layout is None:
-            table_layout = OxmlElement("w:tblLayout")
-            table_pr.append(table_layout)
+        table_layout = table_pr.get_or_add_tblLayout()
         table_layout.set(qn("w:type"), "fixed")
 
     @staticmethod
@@ -1019,10 +1018,7 @@ class WordAPI:
         border_size: str = "8",
     ) -> None:
         table_properties = table._tbl.tblPr
-        borders = table_properties.find(qn("w:tblBorders"))
-        if borders is None:
-            borders = OxmlElement("w:tblBorders")
-            table_properties.append(borders)
+        borders = child_in_order(table_properties, "w:tblBorders", _TABLE_BORDER_SUCCESSORS)
 
         for edge in ("top", "left", "bottom", "right", "insideH", "insideV"):
             node = borders.find(qn(f"w:{edge}"))

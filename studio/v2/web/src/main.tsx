@@ -915,7 +915,7 @@ function App() {
         job: finished,
       });
       MODE("preview");
-      M("真实预览已生成 · " + finished.result.pages + " 页");
+      M("");
     } catch (reason) {
       if (ownsRequest()) {
         E(reason.message);
@@ -1370,24 +1370,30 @@ function App() {
               onDismiss={() => setConversionTask(undefined)}
             />
           )}
+          {job && mode === "preview" && (
+            <div className={"render-label" + (stale ? " stale" : "")}>
+              <span aria-live="polite">
+                {stale
+                  ? rendering
+                    ? "正在更新，以下为旧预览"
+                    : "模板已修改，以下为旧预览 · 请更新"
+                  : job.result.engine_version +
+                    " · " +
+                    job.result.pages +
+                    " 页"}
+              </span>
+              <a
+                href={"/api/v2/artifacts/" + job.id + "/manifest.json"}
+                target="_blank"
+              >
+                产物记录
+              </a>
+            </div>
+          )}
           <div className="canvas">
             {!tpl || mode === "preview" ? (
               job ? (
                 <>
-                  <div className={"render-label " + (stale ? "stale" : "")}>
-                    {stale
-                      ? "模板已修改，以下为旧预览 · 请更新"
-                      : job.result.engine_version +
-                        " · " +
-                        job.result.pages +
-                        " 页"}
-                    <a
-                      href={"/api/v2/artifacts/" + job.id + "/manifest.json"}
-                      target="_blank"
-                    >
-                      产物记录
-                    </a>
-                  </div>
                   <PdfPreview
                     key={job.id}
                     job={job}
@@ -1436,20 +1442,22 @@ function App() {
                         ? "在模板集中创建模板"
                         : "创建第一个模板集"}
                   </h1>
-                  <p>
-                    {tpl
-                      ? "添加组件、修改属性，然后点击“更新预览”。"
-                      : browsingSet
-                        ? "在「" +
-                          browsingSet.name +
-                          "」中创建模板，使用 DS 示例文档开始。"
-                        : "模板集用来管理报告模板、可复用组件和排版引擎。"}
-                  </p>
+                  {(!tpl || engineOption?.available) && (
+                    <p>
+                      {tpl
+                        ? "添加组件、修改属性后可生成预览。"
+                        : browsingSet
+                          ? "在「" +
+                            browsingSet.name +
+                            "」中创建模板，使用 DS 示例文档开始。"
+                          : "模板集用来管理报告模板、可复用组件和排版引擎。"}
+                    </p>
+                  )}
                   {tpl && !engineOption?.available && (
                     <p className="engine-blocked">
                       {engineOption?.name ?? "所选引擎"}在当前环境不可用。
                       {availableEngine
-                        ? "可切换此模板集的排版引擎。"
+                        ? "切换到可用引擎后，再生成预览。"
                         : "安装排版引擎后即可生成报告。"}
                     </p>
                   )}
@@ -1469,7 +1477,7 @@ function App() {
                         run(() => changeEngine(availableEngine.id))
                       }
                     >
-                      使用 {availableEngine.name} 排版
+                      切换到 {availableEngine.name}
                     </button>
                   ) : (
                     <button

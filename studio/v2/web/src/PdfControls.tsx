@@ -11,6 +11,7 @@ import "./pdf-preview.css";
 
 const ZOOM_STEPS = [50, 75, 100, 125, 150, 200];
 const CSS_PIXELS_PER_POINT = 96 / 72;
+const NARROW_WORKSPACE = "(max-width: 800px)";
 type Zoom = "page" | "width" | number;
 
 function scrollPadding(view: HTMLElement) {
@@ -32,10 +33,14 @@ export function usePdfControls(
   const pageStack = useRef<HTMLDivElement>(null);
   const scrollView = useRef<HTMLElement | null>(null);
   const zoomAnchor = useRef<number | null>(null);
-  const [zoom, setZoom] = useState<Zoom>("page");
+  const [selectedZoom, setSelectedZoom] = useState<Zoom>();
   const [pageNumber, setPageNumber] = useState(1);
   const [pageEntry, setPageEntry] = useState<string | null>(null);
-  const [fitSize, setFitSize] = useState({ width: 640, height: 480 });
+  const [fitSize, setFitSize] = useState({
+    width: 640,
+    height: 480,
+    narrow: false,
+  });
   const { width: widestPage, height: tallestPage } = useMemo(
     () =>
       pages.reduce(
@@ -48,6 +53,7 @@ export function usePdfControls(
     [pages],
   );
   const widthScale = fitSize.width / widestPage;
+  const zoom: Zoom = selectedZoom ?? (fitSize.narrow ? "width" : "page");
   const scale =
     zoom === "page"
       ? Math.min(widthScale, fitSize.height / tallestPage)
@@ -66,6 +72,7 @@ export function usePdfControls(
 
     let frame = 0;
     let padding = scrollPadding(view);
+    const narrowWorkspace = window.matchMedia(NARROW_WORKSPACE);
     function readVisiblePage() {
       frame = 0;
       const rect = view.getBoundingClientRect();
@@ -107,22 +114,25 @@ export function usePdfControls(
         1,
         view.clientHeight - padding.top - padding.bottom - Math.max(0, start),
       );
+      const narrow = narrowWorkspace.matches;
       setFitSize((previous) =>
-        previous.width === width && previous.height === height
+        previous.width === width &&
+        previous.height === height &&
+        previous.narrow === narrow
           ? previous
-          : { width, height },
+          : { width, height, narrow },
       );
       schedulePageUpdate();
     }
 
     const resize = new ResizeObserver(measureFitSize);
     resize.observe(view);
-    if (stack.previousElementSibling)
-      resize.observe(stack.previousElementSibling);
+    narrowWorkspace.addEventListener("change", measureFitSize);
     view.addEventListener("scroll", schedulePageUpdate, { passive: true });
     measureFitSize();
     return () => {
       resize.disconnect();
+      narrowWorkspace.removeEventListener("change", measureFitSize);
       view.removeEventListener("scroll", schedulePageUpdate);
       if (frame) window.cancelAnimationFrame(frame);
       scrollView.current = null;
@@ -146,7 +156,7 @@ export function usePdfControls(
   function changeZoom(next: Zoom) {
     if (next === zoom) return;
     zoomAnchor.current = pageNumber;
-    setZoom(next);
+    setSelectedZoom(next);
   }
 
   useLayoutEffect(() => {

@@ -376,22 +376,23 @@ main {
   border: 1px solid #245ce7;
 }
 .render-label {
-  max-width: 800px;
-  margin: 0 auto 14px;
+  padding: 8px 20px;
   font-size: 11px;
   color: #52647e;
+  background: #fafbfe;
+  border-bottom: 1px solid #dfe5ef;
   display: flex;
   justify-content: space-between;
   gap: 8px;
+  flex-shrink: 0;
 }
 .render-label a {
   color: #245ce7;
+  flex-shrink: 0;
 }
-.stale {
-  color: #9c650a;
+.render-label.stale {
+  color: #794a08;
   background: #fff4d9;
-  padding: 10px;
-  border-radius: 5px;
 }
 .preview-note {
   font-size: 11px;
@@ -707,6 +708,9 @@ pre {
   }
   .preview-toolbar {
     padding: 10px;
+  }
+  .render-label {
+    padding-inline: 12px;
   }
   .section-head {
     padding-left: 12px;

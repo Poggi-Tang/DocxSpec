@@ -3,9 +3,11 @@ import io
 import tempfile
 import unittest
 import zipfile
+from copy import deepcopy
 from pathlib import Path
 
 from docx import Document
+from docx.oxml.ns import qn
 from lxml import etree
 from docxspec import DEFAULT_MASTER_TEMPLATE
 from model import validate
@@ -104,9 +106,19 @@ class StudioTests(unittest.TestCase):
         self.assertEqual(doc.sections[-1].left_margin, source.sections[-1].left_margin)
         for style in source.styles:
             if style.name.startswith(("DS", "toc ")):
+                expected = deepcopy(style.element)
+                actual = deepcopy(doc.styles[style.name].element)
+                priority = actual.find(qn("w:uiPriority"))
+                if priority is not None:
+                    # The value is preserved while export corrects the source element order.
+                    quick_format = actual.find(qn("w:qFormat"))
+                    if quick_format is not None:
+                        self.assertLess(actual.index(priority), actual.index(quick_format))
+                    actual.remove(priority)
+                    actual.insert(expected.index(expected.find(qn("w:uiPriority"))), priority)
                 self.assertEqual(
-                    etree.tostring(style.element, method="c14n"),
-                    etree.tostring(doc.styles[style.name].element, method="c14n"),
+                    etree.tostring(expected, method="c14n"),
+                    etree.tostring(actual, method="c14n"),
                     style.name,
                 )
         paragraph = doc.tables[2].cell(1, 1).paragraphs[0]

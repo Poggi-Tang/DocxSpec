@@ -6,6 +6,17 @@ The format is based on *Keep a Changelog*, and this project adheres to *Semantic
 
 ---
 
+## [0.1.2] - 2026-11-25
+
+### Fixed
+
+* Write DOCX settings, table properties, and style metadata in schema order.
+  Link the settings part when a document lacks one.
+* Check Word field and directory results across document stories before saving.
+* Stop cancelled Studio preview processes so queued previews can run.
+* Keep stale preview feedback visible while scrolling, clarify the engine
+  switch action, and fit PDFs to the available width on narrow screens.
+
 ## [0.1.1] - 2026-11-20
 
 ### Fixed

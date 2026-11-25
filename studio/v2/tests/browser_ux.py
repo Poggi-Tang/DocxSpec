@@ -7,7 +7,15 @@ import asyncio
 import os
 from uuid import uuid4
 
-from browser_interactions import BASE, add_set, add_template, api, editor_page, open_template
+from browser_interactions import (
+    BASE,
+    add_set,
+    add_template,
+    api,
+    editor_page,
+    header,
+    open_template,
+)
 from playwright.async_api import async_playwright, expect
 
 
@@ -126,6 +134,63 @@ async def narrow_editing(browser, client):
             await page.close()
 
 
+async def preview_status_and_responsive_zoom(browser, client):
+    owner = await add_set(client, "预览体验")
+    template = await add_template(
+        client,
+        owner,
+        "双页预览",
+        [
+            {"kind": "heading", "text": "设备验收报告"},
+            {"kind": "pagebreak"},
+            {"kind": "paragraph", "text": "第二页记录"},
+        ],
+    )
+    async with editor_page(browser, owner, template) as page:
+        update = page.get_by_role("button", name="更新预览", exact=True)
+        download = page.get_by_role("button", name="DOCX", exact=True)
+        rendered_pages = page.locator('.pdf-page canvas[data-ready="true"]')
+        zoom = page.get_by_label("缩放", exact=True)
+        engine = page.get_by_label("排版引擎")
+
+        await update.click()
+        await expect(rendered_pages).to_have_count(2, timeout=30_000)
+        await expect(zoom).to_have_value("page")
+        await expect(download).to_be_enabled()
+        await page.locator('[data-pdf-page="2"]').scroll_into_view_if_needed()
+        await header(page).fill("已修改页眉")
+        stale = page.get_by_text("模板已修改，以下为旧预览 · 请更新", exact=True)
+        await expect(stale).to_be_in_viewport()
+        await expect(page.get_by_text("真实预览已生成", exact=False)).to_have_count(0)
+        await expect(download).to_be_disabled()
+
+        await engine.select_option("wps")
+        await expect(update).to_be_disabled()
+        await expect(
+            page.get_by_text("切换到可用引擎后，再生成预览。", exact=False)
+        ).to_be_visible()
+        await page.get_by_role("button", name="切换到 LibreOffice", exact=True).click()
+        await expect(engine).to_have_value("libreoffice")
+        await expect(update).to_be_enabled()
+        await expect(rendered_pages).to_have_count(0)
+
+        await page.set_viewport_size({"width": 390, "height": 844})
+        await update.click()
+        await expect(rendered_pages).to_have_count(2, timeout=30_000)
+        await expect(zoom).to_have_value("width")
+        assert (await page.locator(".pdf-page").first.bounding_box())["width"] >= 320
+        assert await page.evaluate("document.documentElement.scrollWidth") == 390
+
+        await page.set_viewport_size({"width": 1440, "height": 900})
+        await expect(zoom).to_have_value("page")
+        await page.set_viewport_size({"width": 390, "height": 844})
+        await expect(zoom).to_have_value("width")
+        await zoom.select_option("page")
+        await page.set_viewport_size({"width": 1440, "height": 900})
+        await page.set_viewport_size({"width": 390, "height": 844})
+        await expect(zoom).to_have_value("page")
+
+
 async def main():
     async with async_playwright() as playwright:
         client = await playwright.request.new_context(base_url=BASE)
@@ -134,7 +199,12 @@ async def main():
             headless=True,
         )
         try:
-            for check in (first_template, dialog_and_sample_data, narrow_editing):
+            for check in (
+                first_template,
+                dialog_and_sample_data,
+                narrow_editing,
+                preview_status_and_responsive_zoom,
+            ):
                 await check(browser, client)
                 print(check.__name__ + " passed", flush=True)
         finally:

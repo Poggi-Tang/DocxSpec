@@ -235,6 +235,13 @@ class Store:
                 "result": json.loads(r["result"]) if r["result"] else None,
             }
 
+    def job_status(self, key):
+        with self.db() as db:
+            row = db.execute("SELECT status FROM jobs WHERE id=?", (key,)).fetchone()
+            if row is None:
+                raise KeyError("任务不存在")
+            return row["status"]
+
     def update_job(self, key, status, result=None, error=None):
         with self.db() as db:
             db.execute(
@@ -259,7 +266,8 @@ class Store:
 
     def cancel_job(self, key):
         with self.db() as db:
-            db.execute(
+            changed = db.execute(
                 "UPDATE jobs SET status='cancelled' WHERE id=? AND status IN ('queued','compiling','rendering','analyzing')",  # noqa: E501
                 (key,),
-            )
+            ).rowcount
+        return "cancelled" if changed else self.job_status(key)

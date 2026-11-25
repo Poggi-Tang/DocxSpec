@@ -24,11 +24,11 @@ python -m studio.v2.app
 ## 排版与交付边界
 
 - **LibreOffice**：安装 LibreOffice 并让 `soffice` 可通过 PATH 找到，或设置 `STUDIO_SOFFICE` 为可执行文件。此版本完成 Linux 实际排版及浏览器预览测试。PDF 是真实 LibreOffice 输出，**不代表 Word/WPS 的排版**；下载 DOCX 的域缓存不保证被 LibreOffice 回写。
-- **Microsoft Word**：Windows 上安装桌面 Word，再安装 `pip install -e '.[studio,word]'`。适配器通过独立 COM 进程更新正文、故事范围、文本框、目录并导出 PDF，限制三次更新以检测稳定性。**当前 Linux 环境不能实测该适配器，不能据此声称 Word 验收通过。**
+- **Microsoft Word**：Windows 上安装桌面 Word，再安装 `pip install -e '.[studio,word]'`。适配器通过独立 COM 进程刷新正文、各节页眉页脚、文本框及目录。最多刷新三轮，连续两轮的页数、域结果和目录内容一致后才保存并导出 PDF。桌面 Word 验收需在 Windows 进行。
 - **WPS**：当前未接入经过验证的自动化适配器，界面明确标记不可用。可下载 DOCX 后在 WPS 手工实测。
-- 不可用的引擎不会被自动替换。切换引擎会清除旧预览；修改模板或数据会把预览标记为过期并禁用当前 DOCX 下载。
+- 不可用的引擎不会被自动替换。切换引擎会清除旧预览并取消仍在运行的旧任务，释放排版队列。修改模板或数据会把预览标记为过期并禁用当前 DOCX 下载。
 - 每次任务产生独立的 `report.docx`、`report.pdf` 和 `manifest.json`，记录引擎版本、DS 母版哈希、输入哈希及产物哈希。
-- PDF 支持适合整页、适合宽度、缩放和跳页。下载文件名带模板名与版本，内容来自当前预览绑定的任务。
+- PDF 支持适合整页、适合宽度、缩放和跳页，窄屏默认适合宽度。过期提示固定在画布上方。下载文件名带模板名与版本，内容来自当前预览绑定的任务。
 - 排版引擎设置属于正在编辑的模板所在的模板集。浏览另一个模板集时，当前模板及其引擎继续显示。
 - PDF 中只有能唯一匹配的文本提供点击选择；表格、图片、重复文字通过结构树选择，不伪造坐标。
 - 字体必须在排版机器安装；尚无字体完整性自动认证。跨引擎、跨字体环境不能承诺像素一致。
@@ -48,7 +48,7 @@ python -m studio.v2.app
 打开模板后，点击工具栏「导出模板包」。ZIP 包含当前编辑内容和引用的固定图片，包括尚未保存的模板改动。测试数据、预览和 AI 审核记录留在 Studio。生成报告时，Python 单独读取业务数据。安装与导出端匹配的 DocxSpec 版本以保留相同的 DS 母版。
 
 ```bash
-python -m pip install "docxspec[report]==0.1.1"
+python -m pip install "docxspec[report]==0.1.2"
 ```
 
 ```python

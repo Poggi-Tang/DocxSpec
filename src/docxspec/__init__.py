@@ -37,7 +37,7 @@ from .word_styles import (
 # Restore the core-properties mapping used by python-docx's metadata setters.
 _docx_nsmap["cp"] = "http://schemas.openxmlformats.org/package/2006/metadata/core-properties"
 
-__version__ = "0.1.1"
+__version__ = "0.1.2"
 
 __all__ = [
     "WordAPI",

@@ -6,6 +6,20 @@ from pathlib import Path
 from docx import Document
 from docx.oxml.ns import qn
 
+from ._xml_order import place_before
+
+_PRIORITY_SUCCESSORS = (
+    "w:semiHidden", "w:unhideWhenUsed", "w:qFormat", "w:locked", "w:personal",
+    "w:personalCompose", "w:personalReply", "w:rsid", "w:pPr", "w:rPr",
+    "w:tblPr", "w:trPr", "w:tcPr", "w:tblStylePr",
+)
+
+
+def _normalize_priority(style):
+    priority = style.find(qn("w:uiPriority"))
+    if priority is not None:
+        place_before(style, priority, _PRIORITY_SUCCESSORS)
+
 
 def ensure_ds_styles(document):
     """Add missing master styles and numbering without replacing caller styles.
@@ -14,7 +28,10 @@ def ensure_ds_styles(document):
     numbering IDs are remapped so existing custom templates keep their references.
     """
     master = Document(Path(__file__).parent / "assets" / "docxspec_master_template.docx")
-    names = {style.name: style.style_id for style in document.styles}
+    names = {}
+    for style in document.styles:
+        _normalize_priority(style.element)
+        names[style.name] = style.style_id
     if all(style.name in names for style in master.styles if style.name.startswith("DS")):
         return
 
@@ -32,6 +49,7 @@ def ensure_ds_styles(document):
         mapping[style.style_id] = target_id
         element = deepcopy(style.element)
         element.set(qn("w:styleId"), target_id)
+        _normalize_priority(element)
         additions.append(element)
 
     # Import the master's numbering only when a new style needs it. Existing

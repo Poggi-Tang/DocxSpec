@@ -9,6 +9,7 @@ from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from time import monotonic
 
 from fastapi import FastAPI, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, JSONResponse
@@ -20,7 +21,7 @@ from docxspec.report import export_template_bundle
 
 from .compiler import compile_document
 from .conversion import ai_status, convert, extract_docx
-from .engines import capabilities, render
+from .engines import RenderCancelled, capabilities, render
 from .models import (
     DocumentModel,
     Node,
@@ -258,9 +259,18 @@ def create_app(data_dir: Path):
         return FileResponse(p, media_type="image/png")
 
     def render_task(key, body):
+        next_check = 0.0
+
+        def check_cancelled():
+            nonlocal next_check
+            now = monotonic()
+            if now >= next_check:
+                if store.job_status(key) == "cancelled":
+                    raise RenderCancelled
+                next_check = now + 0.05
+
         try:
-            if store.job(key)["status"] == "cancelled":
-                return
+            check_cancelled()
             store.update_job(key, "compiling")
             folder = store.root / "renders" / key
             folder.mkdir(exist_ok=True)
@@ -268,18 +278,21 @@ def create_app(data_dir: Path):
 
             master_hash = hashlib.sha256(Path(DEFAULT_MASTER_TEMPLATE).read_bytes()).hexdigest()
             anchors = compile_document(
-                body.document, body.data, store.root / "assets", folder / "source.docx"
+                body.document, body.data, store.root / "assets", folder / "source.docx",
+                check_cancelled=check_cancelled,
             )
             store.update_job(key, "rendering")
-            if store.job(key)["status"] == "cancelled":
-                return
-            result = render(folder, body.engine, anchors)
+            check_cancelled()
+            result = render(folder, body.engine, anchors, check_cancelled=check_cancelled)
+            check_cancelled()
             result["master_hash"] = master_hash
             result["input_hash"] = hashlib.sha256(
                 json.dumps(body.model_dump(), sort_keys=True, ensure_ascii=False).encode()
             ).hexdigest()
             (folder / "manifest.json").write_text(json.dumps(result, ensure_ascii=False))
             store.update_job(key, "ready", result)
+        except RenderCancelled:
+            return
         except Exception as exc:
             store.update_job(key, "failed", error=str(exc))
 
@@ -299,8 +312,7 @@ def create_app(data_dir: Path):
 
     @app.delete("/api/v2/jobs/{key}")
     def cancel(key: str):
-        store.cancel_job(key)
-        return dict(status="cancelled")
+        return dict(status=store.cancel_job(key))
 
     @app.get("/api/v2/artifacts/{key}/{filename}")
     def artifact(

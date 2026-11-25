@@ -6,6 +6,7 @@ from zipfile import ZipFile
 
 import pytest
 from docx import Document
+from docx.oxml.ns import qn
 from lxml import etree
 from PIL import Image
 
@@ -83,6 +84,7 @@ def test_portable_bundle_matches_direct_render(tmp_path):
             "docProps/core.xml",
             "word/document.xml",
             "word/styles.xml",
+            "word/settings.xml",
             "word/header1.xml",
             "word/footer1.xml",
         ):
@@ -94,6 +96,24 @@ def test_portable_bundle_matches_direct_render(tmp_path):
             "{http://schemas.openxmlformats.org/package/2006/metadata/core-properties}lastModifiedBy"
         )
         assert modifiers[0].text == "DocxSpec"
+
+        settings = etree.fromstring(actual.read("word/settings.xml"))
+        assert settings.index(settings.find(qn("w:updateFields"))) < settings.index(
+            settings.find(qn("w:footnotePr"))
+        )
+        styles = etree.fromstring(actual.read("word/styles.xml"))
+        for style in styles.findall(qn("w:style")):
+            priority = style.find(qn("w:uiPriority"))
+            quick_format = style.find(qn("w:qFormat"))
+            if priority is not None and quick_format is not None:
+                assert style.index(priority) < style.index(quick_format)
+        body = etree.fromstring(actual.read("word/document.xml"))
+        for table in body.iter(qn("w:tblPr")):
+            assert table.index(table.find(qn("w:tblBorders"))) < table.index(
+                table.find(qn("w:tblLayout"))
+            )
+        for cell in body.iter(qn("w:tcPr")):
+            assert cell.index(cell.find(qn("w:tcMar"))) < cell.index(cell.find(qn("w:vAlign")))
 
     result = Document(portable)
     assert [p.text for p in result.paragraphs] == [

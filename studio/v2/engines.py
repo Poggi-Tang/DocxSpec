@@ -7,9 +7,18 @@ import os
 import shutil
 import subprocess
 import sys
+import time
+from collections.abc import Callable
+from contextlib import suppress
 from pathlib import Path
+from tempfile import TemporaryFile
 
+import psutil
 import pymupdf as fitz
+
+
+class RenderCancelled(Exception):
+    """The caller has cancelled this preview."""
 
 
 def capabilities():
@@ -37,19 +46,103 @@ def capabilities():
     ]
 
 
-def render(root: Path, engine: str, anchors):
-    import psutil
+def _stop_office(process, owner_file):
+    if process.poll() is None:
+        with suppress(psutil.Error):
+            children = psutil.Process(process.pid).children(recursive=True)
+            for child in reversed(children):
+                with suppress(psutil.Error):
+                    child.kill()
+        with suppress(OSError):
+            process.kill()
+    with suppress(subprocess.TimeoutExpired):
+        process.wait(timeout=2)
+    if owner_file is not None:
+        # A COM server can be launched outside the worker's process tree.
+        with suppress(OSError, ValueError, KeyError, TypeError, psutil.Error):
+            owner = json.loads(owner_file.read_text())
+            word = psutil.Process(owner["pid"])
+            if word.create_time() == owner["created"]:
+                word.kill()
 
+
+def _tail(stream):
+    size = stream.seek(0, os.SEEK_END)
+    stream.seek(max(0, size - 6000))
+    return stream.read().decode(errors="replace")[-1500:]
+
+
+def _run_office(command, *, check_cancelled, timeout, owner_file=None):
+    # Files avoid waiting for pipe handles inherited by Office subprocesses.
+    with TemporaryFile() as output, TemporaryFile() as errors:
+        if check_cancelled is not None:
+            check_cancelled()
+        env = {**os.environ, "PYTHONIOENCODING": "utf-8"} if owner_file is not None else None
+        process = subprocess.Popen(command, stdout=output, stderr=errors, env=env)
+        try:
+            deadline = time.monotonic() + timeout
+            while True:
+                if check_cancelled is not None:
+                    check_cancelled()
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise subprocess.TimeoutExpired(command, timeout)
+                try:
+                    process.wait(timeout=min(0.2, remaining) if check_cancelled else remaining)
+                    break
+                except subprocess.TimeoutExpired:
+                    continue
+            if check_cancelled is not None:
+                check_cancelled()
+        except BaseException:
+            _stop_office(process, owner_file)
+            raise
+        if process.returncode and owner_file is not None:
+            _stop_office(process, owner_file)
+        return process.returncode, _tail(output), _tail(errors)
+
+
+def _page_mapping(pdf, anchors, check_cancelled):
+    mapping = []
+    normalized_text = None
+    for anchor in anchors:
+        if check_cancelled is not None:
+            check_cancelled()
+        text = anchor["text"].strip()
+        if not text:
+            continue
+        if normalized_text is None:
+            normalized_text = "".join("".join(page.get_text().split()) for page in pdf)
+        # Only offer a page selection for text occurring exactly once in the PDF.
+        if normalized_text.count("".join(text.split())) != 1:
+            continue
+        matches = []
+        for i, page in enumerate(pdf):
+            rects = page.search_for(text)
+            if rects:
+                matches.append((i, rects))
+        if len(matches) == 1:
+            page, rects = matches[0]
+            mapping.append(
+                {
+                    **anchor,
+                    "page": page,
+                    "rects": [list(r) for r in rects],
+                    "method": "unique-pdf-text",
+                }
+            )
+    return mapping
+
+
+def render(root: Path, engine: str, anchors, *, check_cancelled: Callable[[], None] | None = None):
     if not any(c["id"] == engine and c["available"] for c in capabilities()):
         raise ValueError("所选排版引擎不可用；没有自动切换到其他引擎")
     source = root / "source.docx"
     final = root / "report.docx"
+    owned_word = None
     if engine == "word":
-        proc = subprocess.Popen(
-            [sys.executable, str(Path(__file__).with_name("word_worker.py")), str(root)],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-        )
+        owned_word = root / "owned-word.json"
+        cmd = [sys.executable, str(Path(__file__).with_name("word_worker.py")), str(root)]
     else:
         program = (
             os.environ.get("STUDIO_SOFFICE")
@@ -67,73 +160,29 @@ def render(root: Path, engine: str, anchors):
             str(root),
             str(final),
         ]
-        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     try:
-        out, err = proc.communicate(timeout=120)
-    except subprocess.TimeoutExpired:
-        # Kill only this conversion process tree, never unrelated user Office sessions.
-        try:
-            parent = psutil.Process(proc.pid)
-            for child in parent.children(recursive=True):
-                try:
-                    child.kill()
-                except psutil.Error:
-                    pass
-            parent.kill()
-        except psutil.Error:
-            pass
-        proc.communicate()
-        if engine == "word" and (root / "owned-word.json").exists():
-            owner = json.loads((root / "owned-word.json").read_text())
-            try:
-                owned = psutil.Process(owner["pid"])
-                if owned.create_time() == owner["created"]:
-                    owned.kill()
-            except psutil.Error:
-                pass
-        raise RuntimeError("Office 渲染超时，已停止本次任务") from None
-    if proc.returncode or not (root / "report.pdf").is_file():
-        raise RuntimeError(
-            "排版失败：" + (err.decode(errors="replace") or out.decode(errors="replace"))[-1500:]
+        code, out, err = _run_office(
+            cmd, check_cancelled=check_cancelled, timeout=120, owner_file=owned_word
         )
-    pdf = fitz.open(root / "report.pdf")
-    mapping = []
-    for anchor in anchors:
-        text = anchor["text"].strip()
-        if not text:
-            continue
-        matches = []
-        for i, page in enumerate(pdf):
-            rects = page.search_for(text)
-            if rects:
-                matches.append((i, rects))
-
-        # Only offer a page selection when text occurs exactly once in extracted document.
-        def normalized(s):
-            return "".join(s.split())
-
-        alltext = normalized("".join(page.get_text() for page in pdf))
-        unique = bool(normalized(text)) and alltext.count(normalized(text)) == 1
-        if unique and len(matches) == 1:
-            page, rects = matches[0]
-            mapping.append(
-                {
-                    **anchor,
-                    "page": page,
-                    "rects": [list(r) for r in rects],
-                    "method": "unique-pdf-text",
-                }
-            )
+    except subprocess.TimeoutExpired:
+        raise RuntimeError("Office 渲染超时，已停止本次任务") from None
+    if code or not (root / "report.pdf").is_file():
+        raise RuntimeError("排版失败：" + (err or out or "排版引擎未生成 PDF"))
+    if check_cancelled is not None:
+        check_cancelled()
+    with fitz.open(root / "report.pdf") as pdf:
+        mapping = _page_mapping(pdf, anchors, check_cancelled)
+        page_sizes = [[p.rect.width, p.rect.height] for p in pdf]
     result = dict(
         engine=engine,
-        pages=len(pdf),
-        page_sizes=[[p.rect.width, p.rect.height] for p in pdf],
+        pages=len(page_sizes),
+        page_sizes=page_sizes,
         mapping=mapping,
         hashes={
             name: hashlib.sha256((root / name).read_bytes()).hexdigest()
             for name in ("report.docx", "report.pdf")
         },
-        field_status="Word worker updated supported document stories; inspect exported results"
+        field_status="Word field and directory results stabilized across inspected stories"
         if engine == "word"
         else "LibreOffice PDF rendered; DOCX field caches are not certified refreshed",
         notes=[
@@ -141,14 +190,14 @@ def render(root: Path, engine: str, anchors):
             "缺字体可能导致替代，请在交付机器核对字体。",
         ],
     )
-    pdf.close()
     if engine == "word":
         result["engine_version"] = json.loads((root / "engine.json").read_text())["version"]
     else:
         try:
-            result["engine_version"] = (
-                subprocess.check_output([program, "--version"], timeout=10).decode().strip()[:160]
+            code, out, _ = _run_office(
+                [program, "--version"], check_cancelled=check_cancelled, timeout=10
             )
-        except Exception:
+            result["engine_version"] = out.strip()[:160] if not code else "unknown"
+        except (OSError, subprocess.TimeoutExpired):
             result["engine_version"] = "unknown"
     return result

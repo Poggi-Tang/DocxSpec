@@ -2,16 +2,30 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
 from dataclasses import dataclass
+from itertools import count
 from pathlib import Path
 from tempfile import NamedTemporaryFile
 from zipfile import ZIP_DEFLATED, ZipFile
 
+from docx.opc.constants import CONTENT_TYPE as CT
+from docx.opc.constants import RELATIONSHIP_TYPE as RT
+from docx.opc.oxml import CT_Relationships, parse_xml, serialize_part_xml
+from docx.opc.packuri import CONTENT_TYPES_URI, PACKAGE_URI, PackURI
 from lxml import etree
+
+from ._word_com import close_word, refresh_document_fields
+from ._xml_order import child_in_order
 
 W_NS = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
 W_QN = f"{{{W_NS}}}"
+_UPDATE_FIELDS_SUCCESSORS = (
+    "w:hdrShapeDefaults", "w:footnotePr", "w:endnotePr", "w:compat", "w:docVars", "w:rsids",
+    "m:mathPr", "w:attachedSchema", "w:themeFontLang", "w:clrSchemeMapping",
+    "w:doNotIncludeSubdocsInStats", "w:doNotAutoCompressPictures", "w:forceUpgrade", "w:captions",
+    "w:readModeInkLockDown", "w:smartTagType", "sl:schemaLibrary", "w:shapeDefaults",
+    "w:doNotEmbedSmartTags", "w:decimalSymbol", "w:listSeparator",
+)
 
 
 @dataclass(frozen=True)
@@ -42,27 +56,24 @@ def _as_path(docx_path: str | Path) -> Path:
     return path
 
 
-def _rewrite_docx(
-    path: Path,
-    transforms: dict[str, Callable[[bytes], bytes]],
-) -> None:
+def _rewrite_docx(path: Path, updates: dict[str, bytes]) -> None:
     """重写 docx 包内指定 XML 部件，其他文件原样复制。"""
-
-    with ZipFile(path, "r") as src:
-        names = set(src.namelist())
-        entries = [(info, src.read(info.filename)) for info in src.infolist()]
-
+    if not updates:
+        return
     with NamedTemporaryFile(delete=False, suffix=".docx", dir=path.parent) as tmp_file:
         tmp_path = Path(tmp_file.name)
     try:
-        with ZipFile(tmp_path, "w", ZIP_DEFLATED) as dst:
-            for info, data in entries:
-                transform = transforms.get(info.filename)
-                if transform is not None:
-                    data = transform(data)
+        with ZipFile(path) as src, ZipFile(tmp_path, "w", ZIP_DEFLATED) as dst:
+            dst.comment = src.comment
+            for info in src.infolist():
+                data = updates.get(info.filename)
+                if data is None:
+                    data = src.read(info)
                 dst.writestr(info, data)
-            if "word/settings.xml" not in names and "word/settings.xml" in transforms:
-                dst.writestr("word/settings.xml", transforms["word/settings.xml"](b""))
+            names = set(src.namelist())
+            for name, data in updates.items():
+                if name not in names:
+                    dst.writestr(name, data)
         tmp_path.replace(path)
     except Exception:
         tmp_path.unlink(missing_ok=True)
@@ -75,19 +86,73 @@ def _mark_settings_xml(data: bytes) -> bytes:
     else:
         root = etree.Element(f"{W_QN}settings", nsmap={"w": W_NS})
 
-    update_fields = root.find(f"{W_QN}updateFields")
-    if update_fields is None:
-        update_fields = etree.Element(f"{W_QN}updateFields")
-        root.append(update_fields)
+    if root.tag != f"{W_QN}settings":
+        raise ValueError("Invalid Word settings part")
+    for duplicate in root.findall(f"{W_QN}updateFields")[1:]:
+        root.remove(duplicate)
+    update_fields = child_in_order(root, "w:updateFields", _UPDATE_FIELDS_SUCCESSORS)
     update_fields.set(f"{W_QN}val", "true")
     return etree.tostring(root, xml_declaration=True, encoding="UTF-8", standalone=True)
+
+
+def _settings_updates(source: ZipFile) -> dict[str, bytes]:
+    package_rels = parse_xml(source.read(PACKAGE_URI.rels_uri.membername))
+    main_rel = next(
+        (rel for rel in package_rels.Relationship_lst if rel.reltype == RT.OFFICE_DOCUMENT), None
+    )
+    if main_rel is None or main_rel.target_mode != "Internal":
+        raise ValueError("DOCX has no internal document part")
+    document = PackURI.from_rel_ref(PACKAGE_URI, main_rel.target_ref)
+    rels_name = document.rels_uri.membername
+    names = set(source.namelist())
+    rels = parse_xml(source.read(rels_name)) if rels_name in names else CT_Relationships.new()
+    settings_rel = next((rel for rel in rels.Relationship_lst if rel.reltype == RT.SETTINGS), None)
+    updates = {}
+    if settings_rel is not None:
+        if settings_rel.target_mode != "Internal":
+            raise ValueError("DOCX settings must be an internal part")
+        settings = PackURI.from_rel_ref(document.baseURI, settings_rel.target_ref)
+    else:
+        settings = PackURI.from_rel_ref(document.baseURI, "settings.xml")
+        if settings.membername in names:
+            try:
+                orphan = etree.fromstring(source.read(settings.membername))
+            except etree.XMLSyntaxError:
+                orphan = None
+            if orphan is None or orphan.tag != f"{W_QN}settings":
+                for number in count(1):
+                    settings = PackURI.from_rel_ref(document.baseURI, f"settings{number}.xml")
+                    if settings.membername not in names:
+                        break
+        ids = {rel.rId for rel in rels.Relationship_lst}
+        rel_id = next(f"rId{i}" for i in count(1) if f"rId{i}" not in ids)
+        rels.add_rel(rel_id, RT.SETTINGS, settings.relative_ref(document.baseURI))
+        updates[rels_name] = rels.xml
+
+    content_types = parse_xml(source.read(CONTENT_TYPES_URI.membername))
+    override = next((item for item in content_types.overrides if item.partname == settings), None)
+    if override is None:
+        content_types.add_override(settings, CT.WML_SETTINGS)
+        updates[CONTENT_TYPES_URI.membername] = serialize_part_xml(content_types)
+    elif override.get("ContentType") != CT.WML_SETTINGS:
+        override.set("ContentType", CT.WML_SETTINGS)
+        updates[CONTENT_TYPES_URI.membername] = serialize_part_xml(content_types)
+
+    settings_name = settings.membername
+    original = source.read(settings_name) if settings_name in names else b""
+    marked = _mark_settings_xml(original)
+    if marked != original:
+        updates[settings_name] = marked
+    return updates
 
 
 def mark_update_fields_on_open(docx_path: str | Path) -> Path:
     """标记文档在 Word/WPS 打开时自动刷新目录、题注等域。"""
 
     path = _as_path(docx_path)
-    _rewrite_docx(path, {"word/settings.xml": _mark_settings_xml})
+    with ZipFile(path) as source:
+        updates = _settings_updates(source)
+    _rewrite_docx(path, updates)
     return path
 
 
@@ -146,13 +211,7 @@ def normalize_table_list_fields(docx_path: str | Path) -> int:
 
     path = _as_path(docx_path)
     normalized = 0
-
-    def transform(data: bytes) -> bytes:
-        nonlocal normalized
-        new_data, count = _normalize_table_list_xml(data)
-        normalized += count
-        return new_data
-
+    updates = {}
     with ZipFile(path, "r") as src:
         xml_parts = [
             name
@@ -165,7 +224,12 @@ def normalize_table_list_fields(docx_path: str | Path) -> int:
                 or name.startswith("word/footer")
             )
         ]
-    _rewrite_docx(path, {name: transform for name in xml_parts})
+        for name in xml_parts:
+            data, count = _normalize_table_list_xml(src.read(name))
+            if count:
+                updates[name] = data
+                normalized += count
+    _rewrite_docx(path, updates)
     return normalized
 
 
@@ -185,60 +249,13 @@ def refresh_fields_with_word(docx_path: str | Path, *, visible: bool = False) ->
     try:
         word = win32com.client.DispatchEx("Word.Application")
         word.Visible = visible
+        word.AutomationSecurity = 3  # msoAutomationSecurityForceDisable
         doc = word.Documents.Open(str(path), ReadOnly=False, AddToRecentFiles=False)
-
-        doc.Repaginate()
-        result = doc.Fields.Update()
-        if result not in (None, 0):
-            raise RuntimeError(f"Document field update failed at field {result}")
-
-        for story in doc.StoryRanges:
-            current = story
-            while current is not None:
-                result = current.Fields.Update()
-                if result not in (None, 0):
-                    raise RuntimeError(f"Story field update failed at field {result}")
-                current = current.NextStoryRange
-
-        for toc in doc.TablesOfContents:
-            toc.Update()
-        for tof in doc.TablesOfFigures:
-            tof.Update()
-
-        # Rebuilding directories can change pagination. Refresh story fields
-        # again so page totals include the newly expanded directory pages.
-        doc.Repaginate()
-        for story in doc.StoryRanges:
-            current = story
-            while current is not None:
-                result = current.Fields.Update()
-                if result not in (None, 0):
-                    raise RuntimeError(f"Story field update failed at field {result}")
-                current = current.NextStoryRange
-        for toc in doc.TablesOfContents:
-            toc.UpdatePageNumbers()
-        for tof in doc.TablesOfFigures:
-            tof.UpdatePageNumbers()
-
+        refresh_document_fields(doc)
         doc.Save()
         return True
     finally:
-        import sys
-
-        active_error = sys.exc_info()[1]
-        cleanup_errors = []
-        for action in (
-            (lambda: doc.Close(SaveChanges=False)) if doc is not None else None,
-            (lambda: word.Quit()) if word is not None else None,
-            pythoncom.CoUninitialize,
-        ):
-            if action is not None:
-                try:
-                    action()
-                except Exception as exc:
-                    cleanup_errors.append(str(exc))
-        if cleanup_errors and active_error is None:
-            raise RuntimeError("Cleanup failed: " + "; ".join(cleanup_errors))
+        close_word(doc, word, pythoncom.CoUninitialize)
 
 
 def refresh_docx_fields(
