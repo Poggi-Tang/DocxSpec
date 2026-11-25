@@ -220,25 +220,30 @@ empty standalone figure and table lists from existing templates. Other renderers
 
 ## Refreshing Word Fields
 
-`docxspec` can mark a generated `.docx` to request field updates when it is opened.
-Word/WPS may leave some field caches unchanged; the flag is not proof of a refresh. On Windows with Microsoft Word installed, it can also refresh fields immediately
-through Word COM automation.
+Standard generation, `WordAPI.render()`, and `render_report()` request field
+updates when a DOCX opens by default. Set `field_engine` to `"word"`, `"wps"`, or
+`"libreoffice"` to update the final DOCX and check its saved field results.
 
 ```python
 from docxspec import refresh_docx_fields
 
-result = refresh_docx_fields("report.docx", use_word=True)
-print(result.word_refreshed, result.error)
+result = refresh_docx_fields("report.docx", engine="word", strict=True)
+print(result.status)
 ```
 
-Install the optional Word automation dependency when immediate COM refresh is needed:
+COM automation requires Windows, the desktop application, and the optional dependency:
 
 ```bash
 pip install "docxspec[word]"
 ```
 
-Without Microsoft Word or `pywin32`, `refresh_docx_fields()` still writes the
-`updateFields` flag so the fields can update when the file is opened.
+WPS must register `KWPS.Application` and start an isolated instance. LibreOffice
+requires Python UNO bindings, typically provided by `python3-uno` on Linux.
+`DOCXSPEC_SOFFICE` and `DOCXSPEC_UNO_PYTHON` can point to those executables.
+
+`verify_docx_fields()` inspects saved caches in documents updated by any Office
+application. It can compare against a source DOCX and check page-count fields
+against the actual page count.
 
 ## Demo Directory
 

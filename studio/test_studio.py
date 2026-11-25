@@ -90,11 +90,10 @@ class StudioTests(unittest.TestCase):
 
         with patch("renderer.refresh_docx_fields") as refresh:
             render_docx(fixture())
-            refresh.assert_not_called()
+            self.assertEqual(refresh.call_args.kwargs["engine"], "mark")
             render_docx(fixture(), refresh_fields=True)
-            refresh.assert_called_once()
-            self.assertTrue(refresh.call_args.kwargs["use_word"])
-            self.assertTrue(refresh.call_args.kwargs["raise_on_word_error"])
+            self.assertEqual(refresh.call_args.kwargs["engine"], "word")
+            self.assertTrue(refresh.call_args.kwargs["strict"])
         with patch("renderer.refresh_docx_fields", side_effect=RuntimeError("Word failed")):
             with self.assertRaisesRegex(RuntimeError, "Word failed"):
                 render_docx(fixture(), refresh_fields=True)

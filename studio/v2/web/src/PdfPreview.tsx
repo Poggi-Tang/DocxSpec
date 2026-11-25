@@ -25,6 +25,7 @@ export interface RenderResult {
   pages: number;
   page_sizes: [number, number][];
   field_status: string;
+  field_issues?: string[];
   mapping: PdfMapping[];
 }
 

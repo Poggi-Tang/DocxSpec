@@ -16,6 +16,7 @@ from ._field_xml import field_instruction, iter_fields
 from ._master_lists import (
     FIGURE_CAPTION_LABELS,
     TABLE_CAPTION_LABELS,
+    caption_label_matches,
     caption_labels,
     list_field_label,
 )
@@ -76,7 +77,7 @@ def _read_front_blocks(body, directory):
                 list_field_label(field_instruction(owner, runs))
                 for owner, _, runs in iter_fields(block.element.body)
             }
-            if labels.isdisjoint(targets & relevant):
+            if not any(caption_label_matches(label, labels) for label in targets & relevant):
                 continue
         yield name, block
 

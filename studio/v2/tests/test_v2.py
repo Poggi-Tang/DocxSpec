@@ -382,6 +382,54 @@ def test_real_office_multipage(tmp_path):
         assert hashlib.sha256((tmp_path / name).read_bytes()).hexdigest() == digest
 
 
+def test_real_libreoffice_updates_saved_directory_and_footer(tmp_path):
+    import os
+    from zipfile import ZipFile
+
+    import pymupdf
+    from docx import Document
+    from lxml import etree
+
+    from docxspec._field_xml import iter_field_results, story_parts
+    from docxspec._libreoffice_fields import uno_command
+    from studio.make_field_probe import field
+    from studio.v2.engines import render
+
+    if os.environ.get("STUDIO_TEST_OFFICE") != "1":
+        pytest.skip("Set STUDIO_TEST_OFFICE=1 to run actual LibreOffice rendering")
+    source = tmp_path / "source.docx"
+    report = tmp_path / "report.docx"
+    if uno_command(source, report) is None:
+        pytest.skip("LibreOffice UNO Python bindings are unavailable")
+    doc = Document()
+    field(doc.add_paragraph(), r'TOC \o "1-2"', "STALE TOC")
+    doc.add_heading("First section", level=1)
+    doc.add_page_break()
+    doc.add_heading("Second section", level=1)
+    footer = doc.sections[0].footer.paragraphs[0]
+    footer.add_run("Page ")
+    field(footer, "PAGE", "999")
+    footer.add_run(" of ")
+    field(footer, "NUMPAGES", "999")
+    doc.save(source)
+
+    result = render(tmp_path, "libreoffice", [])
+    assert result["field_state"] == "refreshed"
+    assert result["field_issues"] == []
+    with ZipFile(report) as package:
+        values = [
+            (code.strip(), text)
+            for name, _ in story_parts(package)
+            for _, code, text in iter_field_results(etree.fromstring(package.read(name)))
+        ]
+    assert any(code.startswith("TOC") and "Second section" in value for code, value in values)
+    assert ("NUMPAGES", "2") in values
+    assert all("999" not in value and "STALE TOC" not in value for _, value in values)
+    with pymupdf.open(tmp_path / "report.pdf") as pdf:
+        assert "Page 1 of 2" in pdf[0].get_text()
+        assert "Page 2 of 2" in pdf[1].get_text()
+
+
 def test_invalid_or_oversized_source_is_not_silently_truncated():
     with pytest.raises(ValueError, match="有效的 DOCX"):
         extract_docx(b"not a docx")

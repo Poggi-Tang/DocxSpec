@@ -8,8 +8,7 @@ import re
 import stat
 import struct
 import zlib
-from collections.abc import Iterator, Mapping
-from contextlib import contextmanager
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -20,7 +19,8 @@ from zipfile import ZIP_DEFLATED, ZIP_STORED, BadZipFile, ZipFile, ZipInfo
 from PIL import Image
 from pydantic import BaseModel, ConfigDict, Field
 
-from docxspec import DEFAULT_MASTER_TEMPLATE
+from docxspec import DEFAULT_MASTER_TEMPLATE, refresh_docx_fields
+from docxspec._staged_output import staged_output
 
 from ._compiler import compile_document
 from ._models import DocumentModel, Node
@@ -88,15 +88,6 @@ def _fixed_assets(nodes: list[Node]) -> set[str]:
     return hashes
 
 
-@contextmanager
-def _staged_output(destination: Path) -> Iterator[Path]:
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    with TemporaryDirectory(prefix=".docxspec-", dir=destination.parent) as folder:
-        staged = Path(folder) / destination.name
-        yield staged
-        staged.replace(destination)
-
-
 def _bounded_image(path: Path) -> bytes:
     with path.open("rb") as source:
         raw = source.read(_MAX_ASSET + 1)
@@ -133,7 +124,7 @@ def register_report_asset(source: str | Path, assets: str | Path) -> str:
     _check_image(raw)
     digest = hashlib.sha256(raw).hexdigest()
     destination = Path(assets) / digest
-    with _staged_output(destination) as staged:
+    with staged_output(destination) as staged:
         staged.write_bytes(raw)
     return digest
 
@@ -165,7 +156,7 @@ def export_template_bundle(
     directory = Path(assets) if assets is not None else None
     destination = Path(output)
     total = 0
-    with _staged_output(destination) as staged:
+    with staged_output(destination) as staged:
         with ZipFile(staged, "w", compression=ZIP_DEFLATED, allowZip64=False) as archive:
             archive.writestr(_MANIFEST, manifest_bytes)
             for digest in manifest.asset_ids:
@@ -278,6 +269,7 @@ def render_report(
     output: str | Path,
     *,
     assets: str | Path | None = None,
+    field_engine: str = "mark",
 ) -> Path:
     """Generate a DOCX using the same compiler and DS master as Studio.
 
@@ -301,7 +293,7 @@ def render_report(
     destination = Path(output)
     with (
         TemporaryDirectory(prefix="docxspec-assets-") as folder,
-        _staged_output(destination) as staged,
+        staged_output(destination) as staged,
     ):
         local_assets = Path(folder)
         total = 0
@@ -320,4 +312,5 @@ def render_report(
             return target
 
         compile_document(model, dict(data), local_assets, staged, asset_resolver=resolve)
+        refresh_docx_fields(staged, engine=field_engine, strict=True)
     return destination

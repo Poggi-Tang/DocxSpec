@@ -1,6 +1,6 @@
 """DS 标准 Word 文档处理能力。
 
-本模块把公司 Word 标准化流程沉淀为 DocxSpec 的库能力。它不绑定 GUI，
+本模块提供 DocxSpec 的 Word 标准化流程，不绑定 GUI，
 只提供可复用的 DOCX 分类、样式规范化、题注字段、标准文档构建和检查入口。
 """
 
@@ -24,11 +24,21 @@ from docx.oxml.ns import qn
 from docx.table import Table
 from docx.text.paragraph import Paragraph
 from docxcompose.composer import Composer
+from lxml import etree
 
-from ._master_lists import has_body_page_start, prune_caption_list_pages
+from ._field_xml import field_instruction, iter_fields
+from ._master_lists import (
+    FIGURE_CAPTION_LABELS,
+    TABLE_CAPTION_LABELS,
+    has_body_page_start,
+    list_field_label,
+    prune_caption_list_pages,
+    sequence_label,
+)
 from ._section_templates import DEFAULT_DS_SECTIONS, assemble_ds_front_matter, load_ds_section
+from ._staged_output import staged_output
 from .template_styles import ensure_ds_styles
-from .word_fields import mark_update_fields_on_open
+from .word_fields import refresh_docx_fields
 
 PACKAGE_ASSETS_DIR = Path(__file__).resolve().parent / "assets"
 DEFAULT_MASTER_TEMPLATE = PACKAGE_ASSETS_DIR / "docxspec_master_template.docx"
@@ -1169,6 +1179,7 @@ def build_standard_docx(
     *,
     skip_source_front_matter: bool = False,
     front_matter_dir: Path | str | None = None,
+    field_engine: str = "mark",
 ) -> dict[str, Any]:
     """基于 DS 母版把正文文档转换为标准文档。"""
     input_path = Path(input_docx)
@@ -1263,9 +1274,9 @@ def build_standard_docx(
             removed = prune_caption_list_pages(doc.element.body)
             front_count -= sum(element.tag in {qn("w:p"), qn("w:tbl")} for element in removed)
         ensure_ds_styles(doc)
-        doc.save(str(output_path))
-        if modular:
-            mark_update_fields_on_open(output_path)
+        with staged_output(output_path) as staged:
+            doc.save(staged)
+            field_result = refresh_docx_fields(staged, engine=field_engine, strict=True)
 
     report.update(
         {
@@ -1280,6 +1291,7 @@ def build_standard_docx(
             "front_blocks_preserved": front_count,
             "source_front_matter": source_front_matter,
             "skip_source_front_matter": skip_source_front_matter,
+            "field_status": field_result.status,
         }
     )
     return report
@@ -1508,9 +1520,8 @@ def field_instr_text(docx: Path | str) -> str:
     document_xml = read_docx_xml(docx, "word/document.xml")
     if not document_xml:
         return ""
-    root = ET.fromstring(document_xml)
-    parts = [node.text for node in root.findall(".//w:instrText", NS) if node.text]
-    return "\n".join(parts)
+    root = etree.fromstring(document_xml.encode("utf-8"))
+    return "\n".join(field_instruction(owner, runs) for owner, _, runs in iter_fields(root))
 
 
 def check_word_standard(docx: Path | str) -> dict[str, Any]:
@@ -1521,17 +1532,23 @@ def check_word_standard(docx: Path | str) -> dict[str, Any]:
         name for name in REQUIRED_STYLES
         if name not in found_styles and "KL" + name[2:] not in found_styles
     ]
-    fields = field_instr_text(docx_path).replace("STYLEREF KL", "STYLEREF DS")
+    fields = field_instr_text(docx_path)
+    codes = fields.splitlines()
+    labels = {sequence_label(code) for code in codes}
+    list_labels = {list_field_label(code) for code in codes}
+    figures = labels & FIGURE_CAPTION_LABELS
+    tables = labels & TABLE_CAPTION_LABELS
     missing_fields: list[str] = []
-    if ("SEQ 图" in fields or "SEQ 表" in fields) and "STYLEREF DS一级标题" not in fields:
+    style_ref = re.search(r'\bSTYLEREF\s+(?:"(?:DS|KL)一级标题"|(?:DS|KL)一级标题)(?=\s|$)', fields)
+    if (figures or tables) and not style_ref:
         missing_fields.append("STYLEREF DS一级标题")
     missing_toc = [
         snippet
-        for caption, snippet in {
-            "SEQ 图": 'TOC \\h \\z \\c "图"',
-            "SEQ 表": 'TOC \\h \\z \\c "表"',
-        }.items()
-        if caption in fields and snippet not in fields
+        for captions, snippet in (
+            (figures, 'TOC \\h \\z \\c "图"'),
+            (tables, 'TOC \\h \\z \\c "表"'),
+        )
+        if captions and captions.isdisjoint(list_labels)
     ]
     return {
         "source": str(docx_path),
@@ -1542,9 +1559,9 @@ def check_word_standard(docx: Path | str) -> dict[str, Any]:
         "missing_field_snippets": missing_fields,
         "figure_table_lists_ok": not missing_toc,
         "missing_toc_snippets": missing_toc,
-        "has_wrong_table_toc": 'TOC \\h \\z \\c "表格"' in fields,
-        "has_table_seq": "SEQ 表" in fields,
-        "has_figure_seq": "SEQ 图" in fields,
+        "has_wrong_table_toc": bool(tables and (list_labels & TABLE_CAPTION_LABELS) - tables),
+        "has_table_seq": bool(tables),
+        "has_figure_seq": bool(figures),
     }
 
 

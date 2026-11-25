@@ -1,7 +1,6 @@
 """Isolated Office subprocesses. No engine substitution is performed."""
 
 import hashlib
-import importlib.util
 import json
 import os
 import shutil
@@ -16,26 +15,29 @@ from tempfile import TemporaryFile
 import psutil
 import pymupdf as fitz
 
+from docxspec import refresh_docx_fields, verify_docx_fields
+from docxspec._libreoffice_fields import uno_command
+from docxspec._word_com import COM_PROG_IDS, com_engine_registered
+
 
 class RenderCancelled(Exception):
     """The caller has cancelled this preview."""
 
 
 def capabilities():
-    word = sys.platform == "win32" and importlib.util.find_spec("win32com") is not None
     lo = os.environ.get("STUDIO_SOFFICE") or shutil.which("soffice") or shutil.which("libreoffice")
     return [
         dict(
             id="word",
             name="Microsoft Word",
-            available=word,
-            reason="需要 Windows、已安装的 Word 和 pywin32；启动时仍需验证",
+            available=com_engine_registered("word"),
+            reason="需要已注册 Word COM 的 Windows 和 pywin32",
         ),
         dict(
             id="wps",
             name="WPS",
-            available=False,
-            reason="此版本尚无经过验证的 WPS 自动化适配器，请在 WPS 手工检查",
+            available=com_engine_registered("wps"),
+            reason="需要已注册 KWPS.Application 的 Windows 版 WPS 和 pywin32",
         ),
         dict(
             id="libreoffice",
@@ -139,40 +141,66 @@ def render(root: Path, engine: str, anchors, *, check_cancelled: Callable[[], No
         raise ValueError("所选排版引擎不可用；没有自动切换到其他引擎")
     source = root / "source.docx"
     final = root / "report.docx"
+    pdf_path = root / "report.pdf"
+    refresh_docx_fields(source, engine="mark")
     owned_word = None
-    if engine == "word":
+    updates_docx = True
+    if engine in COM_PROG_IDS:
         owned_word = root / "owned-word.json"
-        cmd = [sys.executable, str(Path(__file__).with_name("word_worker.py")), str(root)]
+        cmd = [sys.executable, str(Path(__file__).with_name("word_worker.py")), engine, str(root)]
     else:
         program = (
             os.environ.get("STUDIO_SOFFICE")
             or shutil.which("soffice")
             or shutil.which("libreoffice")
         )
-        shutil.copy2(source, final)
-        cmd = [
-            program,
-            "--headless",
-            "-env:UserInstallation=" + (root / "profile").as_uri(),
-            "--convert-to",
-            "pdf",
-            "--outdir",
-            str(root),
-            str(final),
-        ]
+        cmd = uno_command(source, final, pdf=pdf_path, program=program)
+        if cmd is None:
+            updates_docx = False
+            shutil.copy2(source, final)
+            cmd = [
+                program,
+                "--headless",
+                "-env:UserInstallation=" + (root / "profile").as_uri(),
+                "--convert-to",
+                "pdf",
+                "--outdir",
+                str(root),
+                str(final),
+            ]
     try:
         code, out, err = _run_office(
             cmd, check_cancelled=check_cancelled, timeout=120, owner_file=owned_word
         )
     except subprocess.TimeoutExpired:
         raise RuntimeError("Office 渲染超时，已停止本次任务") from None
-    if code or not (root / "report.pdf").is_file():
-        raise RuntimeError("排版失败：" + (err or out or "排版引擎未生成 PDF"))
+    if code or not pdf_path.is_file() or not final.is_file():
+        raise RuntimeError("排版失败：" + (err or out or "排版引擎未生成完整产物"))
     if check_cancelled is not None:
         check_cancelled()
-    with fitz.open(root / "report.pdf") as pdf:
+    with fitz.open(pdf_path) as pdf:
         mapping = _page_mapping(pdf, anchors, check_cancelled)
         page_sizes = [[p.rect.width, p.rect.height] for p in pdf]
+    field_state = "marked_for_update"
+    field_status = "仅请求打开时更新 DOCX 的域。LibreOffice 当前只生成 PDF。"
+    field_issues = []
+    word_info = {}
+    if engine in COM_PROG_IDS:
+        word_info = json.loads((root / "engine.json").read_text(encoding="utf-8"))
+        field_issues.extend(word_info.get("field_issues", ()))
+        if "pages" in word_info and word_info["pages"] != len(page_sizes):
+            field_issues.append("Office 刷域时的页数和最终 PDF 页数不同")
+    if updates_docx:
+        field_issues.extend(
+            verify_docx_fields(final, original=source, page_count=len(page_sizes)).issues
+        )
+        if field_issues:
+            field_state = "partial"
+            field_status = "部分域未通过保存后检查。下载将提供排版前的 DOCX。"
+            shutil.copy2(source, final)
+        else:
+            field_state = "refreshed"
+            field_status = "已更新并检查保存后的目录、题注、页码和交叉引用。"
     result = dict(
         engine=engine,
         pages=len(page_sizes),
@@ -182,16 +210,16 @@ def render(root: Path, engine: str, anchors, *, check_cancelled: Callable[[], No
             name: hashlib.sha256((root / name).read_bytes()).hexdigest()
             for name in ("report.docx", "report.pdf")
         },
-        field_status="Word field and directory results stabilized across inspected stories"
-        if engine == "word"
-        else "LibreOffice PDF rendered; DOCX field caches are not certified refreshed",
+        field_state=field_state,
+        field_status=field_status,
+        field_issues=field_issues,
         notes=[
             "只有唯一文本匹配提供页面选择；其他对象请使用结构树。",
             "缺字体可能导致替代，请在交付机器核对字体。",
         ],
     )
-    if engine == "word":
-        result["engine_version"] = json.loads((root / "engine.json").read_text())["version"]
+    if engine in COM_PROG_IDS:
+        result["engine_version"] = word_info["version"]
     else:
         try:
             code, out, _ = _run_office(

@@ -6,6 +6,25 @@ The format is based on *Keep a Changelog*, and this project adheres to *Semantic
 
 ---
 
+## [0.3.0] - 2026-11-25
+
+### Added
+
+* Select a field refresh engine for Python report generation and Studio exports.
+  The supported automation paths are Word COM, WPS COM on Windows installations
+  that register it, and LibreOffice with Python UNO.
+* Add `verify_docx_fields()` to inspect saved field results and flag locked,
+  missing, or unresolved fields and inconsistent page counts.
+* Show saved field verification results in Studio preview and artifact records.
+
+### Fixed
+
+* Keep native table lists aligned with the caption label actually used in the
+  document, including the `表` and `表格` variants.
+* Preserve the original DOCX when a required refresh or saved-result check fails.
+* Remove trailing empty paragraphs that could add a blank page after the DS cover
+  when a LibreOffice-saved report was opened in WPS.
+
 ## [0.2.0] - 2026-11-25
 
 ### Added

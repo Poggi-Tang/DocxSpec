@@ -2,31 +2,52 @@
 
 from __future__ import annotations
 
+import re
+import shutil
 from dataclasses import dataclass
 from itertools import count
 from pathlib import Path
-from tempfile import NamedTemporaryFile
+from tempfile import NamedTemporaryFile, TemporaryDirectory
 from zipfile import ZIP_DEFLATED, ZipFile
 
 from docx.opc.constants import CONTENT_TYPE as CT
 from docx.opc.constants import RELATIONSHIP_TYPE as RT
 from docx.opc.oxml import CT_Relationships, parse_xml, serialize_part_xml
-from docx.opc.packuri import CONTENT_TYPES_URI, PACKAGE_URI, PackURI
+from docx.opc.packuri import CONTENT_TYPES_URI, PackURI
 from lxml import etree
 
-from ._field_xml import field_instruction, iter_fields
-from ._master_lists import prune_caption_list_pages
-from ._word_com import close_word, refresh_document_fields
+from ._field_audit import verify_docx_fields
+from ._field_xml import document_part_uri, field_instruction, iter_fields, story_parts
+from ._libreoffice_fields import update_with_libreoffice
+from ._master_lists import TABLE_CAPTION_ALIASES, prune_caption_list_pages, sequence_label
+from ._staged_output import staged_output
+from ._word_com import COM_PROG_IDS, close_word, refresh_document_fields
 from ._xml_order import child_in_order
 
 W_NS = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
 W_QN = f"{{{W_NS}}}"
 _UPDATE_FIELDS_SUCCESSORS = (
-    "w:hdrShapeDefaults", "w:footnotePr", "w:endnotePr", "w:compat", "w:docVars", "w:rsids",
-    "m:mathPr", "w:attachedSchema", "w:themeFontLang", "w:clrSchemeMapping",
-    "w:doNotIncludeSubdocsInStats", "w:doNotAutoCompressPictures", "w:forceUpgrade", "w:captions",
-    "w:readModeInkLockDown", "w:smartTagType", "sl:schemaLibrary", "w:shapeDefaults",
-    "w:doNotEmbedSmartTags", "w:decimalSymbol", "w:listSeparator",
+    "w:hdrShapeDefaults",
+    "w:footnotePr",
+    "w:endnotePr",
+    "w:compat",
+    "w:docVars",
+    "w:rsids",
+    "m:mathPr",
+    "w:attachedSchema",
+    "w:themeFontLang",
+    "w:clrSchemeMapping",
+    "w:doNotIncludeSubdocsInStats",
+    "w:doNotAutoCompressPictures",
+    "w:forceUpgrade",
+    "w:captions",
+    "w:readModeInkLockDown",
+    "w:smartTagType",
+    "sl:schemaLibrary",
+    "w:shapeDefaults",
+    "w:doNotEmbedSmartTags",
+    "w:decimalSymbol",
+    "w:listSeparator",
 )
 
 
@@ -39,14 +60,28 @@ class FieldRefreshResult:
     table_list_fields_normalized: int
     word_refreshed: bool
     error: str | None = None
+    engine: str | None = None
+    issues: tuple[str, ...] = ()
 
     @property
     def status(self) -> str:
+        if self.error:
+            return "failed"
+        if self.issues:
+            return "partial"
         return (
-            "failed"
-            if self.error
-            else ("refreshed" if self.word_refreshed else "marked_for_update")
+            "refreshed"
+            if self.word_refreshed or self.engine in {"libreoffice", "wps"}
+            else "marked_for_update"
         )
+
+
+class PartialFieldRefreshError(RuntimeError):
+    """An Office run left some fields unverified in the saved DOCX."""
+
+    def __init__(self, issues: tuple[str, ...]):
+        self.issues = issues
+        super().__init__("域未完整更新：" + "；".join(issues))
 
 
 def _as_path(docx_path: str | Path) -> Path:
@@ -97,18 +132,8 @@ def _mark_settings_xml(data: bytes) -> bytes:
     return etree.tostring(root, xml_declaration=True, encoding="UTF-8", standalone=True)
 
 
-def _document_part_uri(source: ZipFile) -> PackURI:
-    package_rels = parse_xml(source.read(PACKAGE_URI.rels_uri.membername))
-    main_rel = next(
-        (rel for rel in package_rels.Relationship_lst if rel.reltype == RT.OFFICE_DOCUMENT), None
-    )
-    if main_rel is None or main_rel.target_mode != "Internal":
-        raise ValueError("DOCX has no internal document part")
-    return PackURI.from_rel_ref(PACKAGE_URI, main_rel.target_ref)
-
-
 def _settings_updates(source: ZipFile) -> dict[str, bytes]:
-    document = _document_part_uri(source)
+    document = document_part_uri(source)
     rels_name = document.rels_uri.membername
     names = set(source.namelist())
     rels = parse_xml(source.read(rels_name)) if rels_name in names else CT_Relationships.new()
@@ -153,7 +178,7 @@ def _settings_updates(source: ZipFile) -> dict[str, bytes]:
 
 
 def mark_update_fields_on_open(docx_path: str | Path) -> Path:
-    """标记文档在 Word/WPS 打开时自动刷新目录、题注等域。"""
+    """请求目标 Office 打开文档时更新域。"""
 
     path = _as_path(docx_path)
     with ZipFile(path) as source:
@@ -166,7 +191,7 @@ def prune_empty_caption_lists(docx_path: str | Path) -> Path:
     """Remove empty DS front-matter lists from an already assembled report."""
     path = _as_path(docx_path)
     with ZipFile(path) as source:
-        name = _document_part_uri(source).membername
+        name = document_part_uri(source).membername
         document = etree.fromstring(source.read(name))
     body = document.find(f"{W_QN}body")
     if body is not None and prune_caption_list_pages(body):
@@ -174,19 +199,20 @@ def prune_empty_caption_lists(docx_path: str | Path) -> Path:
     return path
 
 
-def _normalize_table_list_xml(data: bytes) -> tuple[bytes, int]:
-    import re
-
+def _normalize_table_list_xml(data: bytes, labels: set[str]) -> tuple[bytes, int]:
     root = etree.fromstring(data)
     count = 0
     for owner, _, nodes in iter_fields(root):
         text = field_instruction(owner, nodes)
         if not re.match(r"^\s*TOC\b", text, re.I):
             continue
-        match = re.search(r'\\c\s+"(表格|表)"', text, re.I)
+        match = re.search(r'\\c\s+(?:"(表格|表)"|(表格|表)(?=\s|$))', text, re.I)
         if match is None:
             continue
-        new = text[: match.start(1)] + "表" + text[match.end(1) :]
+        group = 1 if match[1] is not None else 2
+        label = match[group]
+        target = label if label in labels else "表格" if "表格" in labels else "表"
+        new = text[: match.start(group)] + target + text[match.end(group) :]
         if not re.search(r"\\z(?=\s|$)", new, re.I):
             new = new[: match.start()] + r"\z " + new[match.start() :]
         if new == text:
@@ -213,19 +239,12 @@ def normalize_table_list_fields(docx_path: str | Path) -> int:
     normalized = 0
     updates = {}
     with ZipFile(path, "r") as src:
-        xml_parts = [
-            name
-            for name in src.namelist()
-            if name.startswith("word/")
-            and name.endswith(".xml")
-            and (
-                name == "word/document.xml"
-                or name.startswith("word/header")
-                or name.startswith("word/footer")
-            )
-        ]
-        for name in xml_parts:
-            data, count = _normalize_table_list_xml(src.read(name))
+        main = etree.fromstring(src.read(document_part_uri(src).membername))
+        labels = {
+            sequence_label(field_instruction(owner, runs)) for owner, _, runs in iter_fields(main)
+        } & TABLE_CAPTION_ALIASES
+        for name, _ in story_parts(src):
+            data, count = _normalize_table_list_xml(src.read(name), labels)
             if count:
                 updates[name] = data
                 normalized += count
@@ -233,29 +252,54 @@ def normalize_table_list_fields(docx_path: str | Path) -> int:
     return normalized
 
 
-def refresh_fields_with_word(docx_path: str | Path, *, visible: bool = False) -> bool:
-    """使用 Microsoft Word COM 立即刷新所有域，适用于 Windows + 已安装 Word。"""
-
-    path = _as_path(docx_path).resolve()
+def _update_with_com(path: Path, visible: bool, engine: str) -> tuple[int, tuple[str, ...]]:
     try:
         import pythoncom  # type: ignore[import-not-found]
         import win32com.client  # type: ignore[import-not-found]
     except ImportError as exc:
-        raise RuntimeError("Refreshing fields with Word requires pywin32.") from exc
+        raise RuntimeError("使用 Word 或 WPS 自动化刷域需要 pywin32") from exc
 
     pythoncom.CoInitialize()
     word = None
     doc = None
     try:
-        word = win32com.client.DispatchEx("Word.Application")
+        if engine == "wps":
+            import win32process  # type: ignore[import-not-found]
+
+            existing = set(win32process.EnumProcesses())
+            instance = win32com.client.DispatchEx(COM_PROG_IDS[engine])
+            pid = win32process.GetWindowThreadProcessId(instance.Hwnd)[1]
+            if not pid or pid in existing:
+                raise RuntimeError("无法确认 WPS 启动了独立实例，已停止刷域")
+            word = instance
+        else:
+            word = win32com.client.DispatchEx(COM_PROG_IDS[engine])
         word.Visible = visible
+        word.DisplayAlerts = 0
         word.AutomationSecurity = 3  # msoAutomationSecurityForceDisable
         doc = word.Documents.Open(str(path), ReadOnly=False, AddToRecentFiles=False)
-        refresh_document_fields(doc)
+        pages, issues = refresh_document_fields(doc)
         doc.Save()
-        return True
+        return pages, issues
     finally:
         close_word(doc, word, pythoncom.CoUninitialize)
+
+
+def refresh_fields_with_word(docx_path: str | Path, *, visible: bool = False) -> bool:
+    """Refresh with Microsoft Word and verify field caches after it closes the file."""
+    _refresh_verified_com(_as_path(docx_path).resolve(), visible, "word")
+    return True
+
+
+def _refresh_verified_com(path: Path, visible: bool, engine: str) -> None:
+    with TemporaryDirectory(prefix="docxspec-fields-", dir=path.parent) as folder:
+        staged = Path(folder) / path.name
+        shutil.copy2(path, staged)
+        pages, issues = _update_with_com(staged, visible, engine)
+        inspection = verify_docx_fields(staged, original=path, page_count=pages)
+        if issues or inspection.issues:
+            raise PartialFieldRefreshError(issues + inspection.issues)
+        staged.replace(path)
 
 
 def refresh_docx_fields(
@@ -265,31 +309,47 @@ def refresh_docx_fields(
     visible: bool = False,
     normalize_table_list: bool = True,
     raise_on_word_error: bool = False,
+    engine: str | None = None,
+    strict: bool = False,
 ) -> FieldRefreshResult:
-    """刷新 docx 域。
-
-    该函数先写入打开自动刷新标记，再规范化表目录域；如果 ``use_word`` 为真，
-    则尝试通过 Microsoft Word COM 立即刷新域。未安装 Word 或 pywin32 时默认
-    不抛异常，而是把错误写入返回结果。
-    """
+    """Prepare fields or refresh and verify with an explicitly selected Office engine."""
 
     path = _as_path(docx_path)
-    normalized = 0
-    mark_update_fields_on_open(path)
-    if normalize_table_list:
-        normalized += normalize_table_list_fields(path)
-
+    engine = engine if engine is not None else ("word" if use_word else "mark")
+    if engine not in {"mark", "word", "wps", "libreoffice"}:
+        raise ValueError(f"未知刷域引擎：{engine}")
     word_refreshed = False
     error: str | None = None
-    if use_word:
-        try:
-            word_refreshed = refresh_fields_with_word(path, visible=visible)
-        except Exception as exc:
-            error = str(exc)
-            if raise_on_word_error:
-                raise
-
-    mark_update_fields_on_open(path)
+    issues: tuple[str, ...] = ()
+    required = strict or (engine == "word" and raise_on_word_error)
+    with staged_output(path) as prepared:
+        shutil.copy2(path, prepared)
+        mark_update_fields_on_open(prepared)
+        normalized = normalize_table_list_fields(prepared) if normalize_table_list else 0
+        if engine != "mark":
+            try:
+                if engine == "word":
+                    word_refreshed = refresh_fields_with_word(prepared, visible=visible)
+                elif engine == "wps":
+                    _refresh_verified_com(prepared.resolve(), visible, engine)
+                else:
+                    with staged_output(prepared) as updated:
+                        pages = update_with_libreoffice(prepared, updated)
+                        inspection = verify_docx_fields(
+                            updated, original=prepared, page_count=pages
+                        )
+                        if inspection.issues:
+                            raise PartialFieldRefreshError(inspection.issues)
+            except PartialFieldRefreshError as exc:
+                issues = exc.issues
+                if required:
+                    raise
+            except Exception as exc:
+                error = str(exc)
+                if required:
+                    raise
+            else:
+                mark_update_fields_on_open(prepared)
 
     return FieldRefreshResult(
         path=path,
@@ -297,4 +357,6 @@ def refresh_docx_fields(
         table_list_fields_normalized=normalized,
         word_refreshed=word_refreshed,
         error=error,
+        engine=engine if engine != "mark" else None,
+        issues=issues,
     )

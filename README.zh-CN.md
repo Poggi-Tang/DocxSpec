@@ -194,9 +194,8 @@ python studio/server.py --data-dir .local-acceptance-data
 中的独立空图录和表录。自行保存 DOCX 的渲染器可在写完内容后调用
 `docxspec.prune_empty_caption_lists(path)`。
 
-Windows 上可安装 `python -m pip install -e ".[word]"`，启动时增加 `--refresh-fields`，
-在下载前调用本机 Microsoft Word 更新域并保存；失败时导出报错。默认启动只写入打开更新
-标记，不保证 Office 自动刷新所有区域。当前版本的真实 Word/WPS 排版与 PDF 仍需人工验收。
+启动时可用 `--field-engine` 选择实际刷域引擎。默认只写入打开更新请求，
+指定引擎后会在下载前刷域并检查保存后的 DOCX。Windows 版 Word 和 WPS 自动化仍需实机验收。
 详见 [Studio 使用说明](studio/README.md) 和 [更新说明](CHANGELOG.md)。
 
 ---
@@ -222,22 +221,26 @@ Windows 上可安装 `python -m pip install -e ".[word]"`，启动时增加 `--r
 
 ## Word 域刷新
 
-`docxspec` 可以给生成后的 `.docx` 写入打开时更新域的请求标记；该标记不保证 Word/WPS 已刷新目录、图目录、表目录、题注或页脚缓存。若运行环境为 Windows，且已安装 Microsoft Word 和 `pywin32`，也可以通过 Word COM 立即刷新域。
+`build_standard_docx()`、`WordAPI.render()` 和 `docxspec.report.render_report()` 都接受
+`field_engine=`。默认值 `"mark"` 请求目标 Office 在打开时更新域。指定 `"word"`、
+`"wps"` 或 `"libreoffice"` 会在交付 DOCX 前执行刷域和保存后检查，失败时保留原文件。
 
 ```python id="field-refresh"
 from docxspec import refresh_docx_fields
 
-result = refresh_docx_fields("report.docx", use_word=True)
-print(result.word_refreshed, result.error)
+result = refresh_docx_fields("report.docx", engine="word", strict=True)
+print(result.status)
 ```
 
-需要立即调用 Word COM 刷新时安装可选依赖：
+Windows 的 Word 和 WPS 自动化需要 `pip install "docxspec[word]"` 及可用的桌面 Office。
+WPS 版本需要注册 `KWPS.Application` 并支持独立启动。Linux 可安装 LibreOffice 和
+`python3-uno`，也可用 `DOCXSPEC_SOFFICE` 和 `DOCXSPEC_UNO_PYTHON` 指定可执行文件。
+LibreOffice 保存的 DOCX 由 LibreOffice 重新排版。
 
-```bash id="install-word-extra"
-pip install "docxspec[word]"
-```
-
-未安装 Microsoft Word 或 `pywin32` 时，`refresh_docx_fields()` 仍会写入 `updateFields` 标记，文档打开后可由 Word/WPS 刷新域。
+允许保留仅标记的版本时可用 `strict=False`，并读取 `result.status`、`result.issues`
+和 `result.error`。状态包括 `marked_for_update`、`refreshed`、`partial` 和 `failed`。
+手工另存的文档可用 `verify_docx_fields("report.docx", page_count=实际总页数)` 检查，
+还可用 `original=` 比对处理前的 DOCX 是否有被丢掉的域。
 
 ---
 
@@ -322,8 +325,6 @@ ruff check .
 ## 许可证
 
 MIT License，详见 [LICENSE](https://github.com/Poggi-Tang/DocxSpec/blob/main/LICENSE)。
-
-域刷新结果的 `status` 为 `marked_for_update`、`refreshed` 或 `failed`。仅设置打开更新标记不表示已刷新。Word 更新失败会记录错误；`raise_on_word_error=True` 会抛出异常。当前 COM 调用尚无硬超时保证，不建议直接用于无人值守批量任务。
 
 ## 可视化测试报告编辑器
 

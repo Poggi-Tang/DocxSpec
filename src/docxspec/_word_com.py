@@ -1,12 +1,29 @@
 """Refresh and inspect Word fields across document stories."""
 
+import importlib.util
 import sys
+
+COM_PROG_IDS = {"word": "Word.Application", "wps": "KWPS.Application"}
+
+
+def com_engine_registered(engine):
+    if sys.platform != "win32" or importlib.util.find_spec("win32com") is None:
+        return False
+    import winreg
+
+    try:
+        with winreg.OpenKey(winreg.HKEY_CLASSES_ROOT, COM_PROG_IDS[engine] + r"\CLSID"):
+            return True
+    except OSError:
+        return False
 
 
 def _shape_fields(shapes):
     for shape in shapes:
         if shape.Type == 6:  # msoGroup
             yield from _shape_fields(shape.GroupItems)
+        elif shape.Type == 20:  # msoCanvas
+            yield from _shape_fields(shape.CanvasItems)
         elif shape.TextFrame.HasText:
             yield shape.TextFrame.TextRange.Fields, "Text box"
 
@@ -44,13 +61,20 @@ def refresh_document_fields(document):
         document.Repaginate()
         for directory in _directories(document):
             directory.UpdatePageNumbers()
+        areas = [(tuple(fields), area) for fields, area in _fields(document)]
         signature = (
             document.ComputeStatistics(2),  # wdStatisticPages
-            tuple(tuple(field.Result.Text for field in fields) for fields, _ in _fields(document)),
+            tuple(tuple(field.Result.Text for field in fields) for fields, _ in areas),
             tuple(directory.Range.Text for directory in _directories(document)),
         )
         if signature == previous:
-            return
+            locked = []
+            for fields, area in areas:
+                for field in fields:
+                    if getattr(field, "Locked", False):
+                        code = getattr(getattr(field, "Code", None), "Text", "").strip()
+                        locked.append(f"{area}: {code or 'field'} is locked")
+            return signature[0], tuple(dict.fromkeys(locked))
         previous = signature
     raise RuntimeError("Fields/pagination did not stabilize in three passes")
 

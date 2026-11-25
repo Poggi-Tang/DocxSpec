@@ -11,7 +11,13 @@ from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
 from lxml import etree
 
-from docxspec import mark_update_fields_on_open, normalize_table_list_fields, refresh_docx_fields
+from docxspec import (
+    PartialFieldRefreshError,
+    mark_update_fields_on_open,
+    normalize_table_list_fields,
+    refresh_docx_fields,
+    verify_docx_fields,
+)
 from docxspec._word_com import refresh_document_fields
 
 
@@ -46,6 +52,78 @@ def test_only_real_fields_normalized(tmp_path, split):
     assert normalize_table_list_fields(p) == 1
     assert Document(p).paragraphs[0].text == r'Example: TOC \h \c "表格"'
     assert normalize_table_list_fields(p) == 0
+
+
+def add_simple_field(paragraph, code, cache, *, locked=False):
+    field = OxmlElement("w:fldSimple")
+    field.set(qn("w:instr"), code)
+    if locked:
+        field.set(qn("w:fldLock"), "true")
+    field.append(paragraph.add_run(cache)._r)
+    paragraph._p.append(field)
+
+
+@pytest.mark.parametrize("caption", ["表格", "表"])
+def test_table_lists_follow_caption_labels_in_relocated_story(tmp_path, caption):
+    path = tmp_path / "captions.docx"
+    doc = Document()
+    add_simple_field(doc.add_paragraph(), f"SEQ {caption}", "1")
+    footer = doc.sections[0].footer.paragraphs[0]
+    add_simple_field(footer, r'TOC \h \c "表格"', "Item 1")
+    footer.part.partname = PackURI("/word/ds_sections/example/footer.xml")
+    doc.save(path)
+
+    assert normalize_table_list_fields(path) == 1
+    assert normalize_table_list_fields(path) == 0
+    footer = Document(path).sections[0].footer.paragraphs[0]
+    assert footer._p.xpath(".//w:fldSimple/@w:instr") == [rf'TOC \h \z \c "{caption}"']
+
+
+def test_verification_detects_stale_lost_and_locked_results(tmp_path):
+    source = tmp_path / "before.docx"
+    final = tmp_path / "after.docx"
+    doc = Document()
+    add_simple_field(doc.add_paragraph(), "REF Bookmark", "999")
+    footer = doc.sections[0].footer.paragraphs[0]
+    add_simple_field(footer, "PAGE", "1", locked=True)
+    add_simple_field(footer, "NUMPAGES", "999")
+    doc.save(source)
+    doc.paragraphs[0].clear()
+    add_simple_field(doc.add_paragraph(), "TOC", "STALE TOC")
+    doc.save(final)
+
+    check = verify_docx_fields(final, original=source, page_count=2)
+    assert check.fields_checked == 3
+    assert any("正文 REF 缺少" in issue for issue in check.issues)
+    assert any("页脚 PAGE" in issue and "已锁定" in issue for issue in check.issues)
+    assert any("缓存为 999，实际 2 页" in issue for issue in check.issues)
+    assert any("正文 TOC" in issue for issue in check.issues)
+
+
+def test_partial_refresh_retains_input_and_reports_incomplete_result(tmp_path, monkeypatch):
+    def incomplete(_source, output):
+        doc = Document()
+        add_simple_field(doc.add_paragraph(), "REF Bookmark", "Updated")
+        doc.save(output)
+        return 2
+
+    monkeypatch.setattr("docxspec.word_fields.update_with_libreoffice", incomplete)
+    path = tmp_path / "report.docx"
+    doc = Document()
+    add_simple_field(doc.add_paragraph(), "REF Bookmark", "Original")
+    add_simple_field(doc.sections[0].footer.paragraphs[0], "NUMPAGES", "999")
+    doc.save(path)
+    original = path.read_bytes()
+
+    with pytest.raises(PartialFieldRefreshError, match="NUMPAGES"):
+        refresh_docx_fields(path, engine="libreoffice", strict=True)
+    assert path.read_bytes() == original
+    result = refresh_docx_fields(path, engine="libreoffice")
+    assert result.status == "partial"
+    assert any("NUMPAGES" in issue for issue in result.issues)
+    with ZipFile(path) as archive:
+        assert b"Original" in archive.read("word/document.xml")
+        assert b"updateFields" in archive.read("word/settings.xml")
 
 
 def test_marked_is_not_refreshed(tmp_path):
@@ -155,6 +233,7 @@ def test_word_refresh_updates_directories_and_every_story_until_stable(tmp_path,
         def update():
             events.append(label)
             return 0
+
         return SimpleNamespace(StoryType=7, Fields=Fields(update), NextStoryRange=following)
 
     def directory(label):
@@ -191,8 +270,15 @@ def test_word_refresh_updates_directories_and_every_story_until_stable(tmp_path,
         monkeypatch.setitem(sys.modules, name, module)
     assert refresh_fields_with_word(path)
     assert events == [
-        "paginate", "body", "header", "next section footer", "toc", "figures",
-        "paginate", "toc pages", "figures pages",
+        "paginate",
+        "body",
+        "header",
+        "next section footer",
+        "toc",
+        "figures",
+        "paginate",
+        "toc pages",
+        "figures pages",
     ] * 2 + ["save", "close", "quit", "uninit"]
 
 
@@ -227,8 +313,13 @@ def test_word_field_stability_requires_matching_non_body_results(area, stabilize
     footer = SimpleNamespace(StoryType=9, Fields=footer_fields, NextStoryRange=None)
     header = SimpleNamespace(StoryType=7, Fields=Fields(), NextStoryRange=footer)
     document = SimpleNamespace(
-        Fields=Fields(), StoryRanges=[header], Shapes=[], Sections=[section],
-        TablesOfContents=[directory], TablesOfFigures=[], Repaginate=lambda: None,
+        Fields=Fields(),
+        StoryRanges=[header],
+        Shapes=[],
+        Sections=[section],
+        TablesOfContents=[directory],
+        TablesOfFigures=[],
+        Repaginate=lambda: None,
         ComputeStatistics=lambda _: 1,
     )
     if stabilizes:
@@ -237,3 +328,64 @@ def test_word_field_stability_requires_matching_non_body_results(area, stabilize
         with pytest.raises(RuntimeError, match="did not stabilize"):
             refresh_document_fields(document)
     assert passes == ["1", "2", "2" if stabilizes else "3"]
+
+
+def test_stable_locked_word_field_is_reported_as_unverified():
+    fields = Fields()
+    fields[0].Locked = True
+    fields[0].Code = SimpleNamespace(Text=" PAGE ")
+    document = SimpleNamespace(
+        Fields=fields,
+        StoryRanges=[],
+        Shapes=[],
+        Sections=[],
+        TablesOfContents=[],
+        TablesOfFigures=[],
+        Repaginate=lambda: None,
+        ComputeStatistics=lambda _: 2,
+    )
+    pages, issues = refresh_document_fields(document)
+    assert pages == 2
+    assert issues == ("Document: PAGE is locked",)
+
+
+def test_wps_dispatch_requires_a_new_process(tmp_path, monkeypatch):
+    path = tmp_path / "report.docx"
+    Document().save(path)
+    events = []
+    pc = ModuleType("pythoncom")
+    pc.CoInitialize = lambda: None
+    pc.CoUninitialize = lambda: None
+    process = ModuleType("win32process")
+    process.EnumProcesses = lambda: [100]
+    process.GetWindowThreadProcessId = lambda _: (1, 100)
+    doc = SimpleNamespace(
+        Fields=Fields(), StoryRanges=[], Shapes=[], Sections=[],
+        TablesOfContents=[], TablesOfFigures=[], Repaginate=lambda: None,
+        ComputeStatistics=lambda _: 1, Save=lambda: events.append("save"),
+        Close=lambda **_: None,
+    )
+    wps = SimpleNamespace(
+        Hwnd=1, Documents=SimpleNamespace(Open=lambda *_, **__: doc),
+        Quit=lambda: events.append("quit"),
+    )
+    client = ModuleType("win32com.client")
+
+    def dispatch(prog_id):
+        events.append(prog_id)
+        return wps
+
+    client.DispatchEx = dispatch
+    win32com = ModuleType("win32com")
+    win32com.client = client
+    for module in [pc, process, win32com, client]:
+        monkeypatch.setitem(sys.modules, module.__name__, module)
+
+    result = refresh_docx_fields(path, engine="wps")
+    assert result.status == "failed"
+    assert events == ["KWPS.Application"]
+    process.GetWindowThreadProcessId = lambda _: (1, 200)
+    result = refresh_docx_fields(path, engine="wps", strict=True)
+    assert result.status == "refreshed" and result.engine == "wps"
+    assert not result.word_refreshed
+    assert events[1:] == ["KWPS.Application", "save", "quit"]

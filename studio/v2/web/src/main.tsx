@@ -1429,6 +1429,16 @@ function App() {
                     <br />
                     唯一文本可点击选中；表格、图片和重复文本请通过左侧结构树选择。
                   </p>
+                  {!!job.result.field_issues?.length && (
+                    <details className="preview-note">
+                      <summary>未通过的域检查</summary>
+                      <ul>
+                        {job.result.field_issues.map((issue, i) => (
+                          <li key={i}>{issue}</li>
+                        ))}
+                      </ul>
+                    </details>
+                  )}
                 </>
               ) : (
                 <div className="empty-preview">

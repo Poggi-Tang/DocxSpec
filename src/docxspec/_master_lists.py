@@ -22,6 +22,7 @@ _LIST_TITLES = {
 }
 FIGURE_CAPTION_LABELS = {"图", "figure"}
 TABLE_CAPTION_LABELS = {"表", "表格", "table"}
+TABLE_CAPTION_ALIASES = {"表", "表格"}
 _TOC = re.compile(r"^\s*TOC\b", re.IGNORECASE)
 _LIST_SWITCH = re.compile(r'(?:^|\s)\\c\s+(?:"([^"]+)"|([^\s\\]+))', re.IGNORECASE)
 _SEQ = re.compile(r'^\s*SEQ\s+(?:"([^"]+)"|([^\s\\]+))', re.IGNORECASE)
@@ -105,10 +106,9 @@ def caption_labels(elements):
     for element in elements:
         sequences = set()
         for owner, _, runs in iter_fields(element):
-            code = field_instruction(owner, runs)
-            match = _SEQ.match(code)
-            if match and not _REPEAT_SEQ.search(code[match.end() :]):
-                sequences.add((match[1] or match[2]).casefold())
+            label = sequence_label(field_instruction(owner, runs))
+            if label:
+                sequences.add(label)
         labels.update(sequences & TABLE_CAPTION_LABELS)
         figures = sequences & FIGURE_CAPTION_LABELS
         picture = next(element.iter(*_PICTURES), None) is not None
@@ -122,9 +122,22 @@ def caption_labels(elements):
     return labels
 
 
+def sequence_label(code):
+    match = _SEQ.match(code)
+    if match and not _REPEAT_SEQ.search(code[match.end() :]):
+        return (match[1] or match[2]).casefold()
+    return None
+
+
 def list_field_label(code):
     match = _LIST_SWITCH.search(code) if _TOC.match(code) else None
     return (match[1] or match[2]).casefold() if match else None
+
+
+def caption_label_matches(label, body_labels):
+    return label in body_labels or (
+        label in TABLE_CAPTION_ALIASES and not body_labels.isdisjoint(TABLE_CAPTION_ALIASES)
+    )
 
 
 def prune_caption_list_pages(body):
@@ -167,7 +180,7 @@ def prune_caption_list_pages(body):
     body_labels = caption_labels(element for page in pages[first_body_page:] for element in page)
     removed = []
     for _, page, label in optional:
-        if label not in body_labels:
+        if not caption_label_matches(label, body_labels):
             for element in page:
                 body.remove(element)
                 removed.append(element)

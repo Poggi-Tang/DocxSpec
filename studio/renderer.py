@@ -17,14 +17,13 @@ from docxspec import (
     TableStyle,
     TextStyle,
     WordAPI,
-    mark_update_fields_on_open,
     refresh_docx_fields,
 )
 from docxspec._section_templates import assemble_ds_front_matter, load_ds_section
 from docxspec.kl_standard import replace_cover_title
 
 
-def render_docx(model, *, refresh_fields=False):
+def render_docx(model, *, refresh_fields=False, field_engine=None):
     model = validate(model)
     with tempfile.TemporaryDirectory(prefix="docxspec-studio-") as tmp:
         root = Path(tmp)
@@ -166,8 +165,6 @@ def render_docx(model, *, refresh_fields=False):
         document = Document(output)
         assemble_ds_front_matter(document, prepare_cover=lambda cover: replace_cover_title(cover, cover_text))
         document.save(output)
-        if refresh_fields:
-            refresh_docx_fields(output, use_word=True, raise_on_word_error=True)
-        else:
-            mark_update_fields_on_open(output)
+        engine = field_engine or ("word" if refresh_fields else "mark")
+        refresh_docx_fields(output, engine=engine, strict=True)
         return output.read_bytes()

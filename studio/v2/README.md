@@ -23,9 +23,15 @@ python -m studio.v2.app
 
 ## 排版与交付边界
 
-- **LibreOffice**：安装 LibreOffice 并让 `soffice` 可通过 PATH 找到，或设置 `STUDIO_SOFFICE` 为可执行文件。此版本完成 Linux 实际排版及浏览器预览测试。PDF 是真实 LibreOffice 输出，**不代表 Word/WPS 的排版**；下载 DOCX 的域缓存不保证被 LibreOffice 回写。
-- **Microsoft Word**：Windows 上安装桌面 Word，再安装 `pip install -e '.[studio,word]'`。适配器通过独立 COM 进程刷新正文、各节页眉页脚、文本框及目录。最多刷新三轮，连续两轮的页数、域结果和目录内容一致后才保存并导出 PDF。桌面 Word 验收需在 Windows 进行。
-- **WPS**：当前未接入经过验证的自动化适配器，界面明确标记不可用。可下载 DOCX 后在 WPS 手工实测。
+- **LibreOffice**：安装 LibreOffice 和 `python3-uno`。可用 `STUDIO_SOFFICE` 指定程序，
+  用 `DOCXSPEC_UNO_PYTHON` 指定可导入 UNO 的 Python。UNO 可用时更新目录和域、保存 DOCX
+  并生成 PDF。只有排版程序时提供 PDF，下载的 DOCX 携带打开更新请求。
+- **Microsoft Word**：Windows 上安装桌面 Word 和 `pip install -e '.[studio,word]'`。
+  独立 COM 进程更新正文、各节页眉页脚、文本框及目录，保存后核对 DOCX 和 PDF。
+- **WPS**：Windows 版本需注册 `KWPS.Application`、支持独立启动和所需的文档接口，
+  并安装 `pywin32`。Windows 版 Word 和 WPS 自动化均需桌面实机验收。
+- 预览与产物记录显示域检查状态。发现锁定域、遗漏或缓存异常时，显示具体位置，
+  DOCX 下载保留排版前的版本。
 - 不可用的引擎不会被自动替换。切换引擎会清除旧预览并取消仍在运行的旧任务，释放排版队列。修改模板或数据会把预览标记为过期并禁用当前 DOCX 下载。
 - 每次任务产生独立的 `report.docx`、`report.pdf` 和 `manifest.json`，记录引擎版本、DS 母版哈希、输入哈希及产物哈希。
 - PDF 支持适合整页、适合宽度、缩放和跳页，窄屏默认适合宽度。过期提示固定在画布上方。下载文件名带模板名与版本，内容来自当前预览绑定的任务。

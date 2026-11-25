@@ -140,7 +140,8 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/api/health":
                 self.reply(
                     200, {"engine": "DocxSpec", "storage": "sqlite", "schema": "docxspec-studio-v1",
-                          "refresh_fields": getattr(self.server, "refresh_fields", False)}
+                          "refresh_fields": getattr(self.server, "refresh_fields", False),
+                          "field_engine": getattr(self.server, "field_engine", "mark")}
                 )
                 return
             # Never expose database, source code, arbitrary paths or directory listings.
@@ -184,7 +185,7 @@ class Handler(BaseHTTPRequestHandler):
                 self.reply(
                     200,
                     render_docx(
-                        data, refresh_fields=getattr(self.server, "refresh_fields", False)
+                        data, field_engine=getattr(self.server, "field_engine", "mark")
                     ),
                     "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
                     "docxspec-report.docx",
@@ -197,6 +198,8 @@ class Handler(BaseHTTPRequestHandler):
             self.reply(404, {"error": "模板不存在"})
         except Conflict as exc:
             self.reply(409, {"error": str(exc)})
+        except RuntimeError as exc:
+            self.reply(500, {"error": str(exc)})
         except Exception:
             import traceback
 
@@ -212,7 +215,9 @@ def main():
         type=Path,
         default=Path(os.environ.get("DOCXSPEC_STUDIO_DATA", ROOT / ".data")),
     )
-    parser.add_argument(
+    fields = parser.add_mutually_exclusive_group()
+    fields.add_argument("--field-engine", choices=("mark", "word", "wps", "libreoffice"), default="mark")
+    fields.add_argument(
         "--refresh-fields",
         action="store_true",
         help="Refresh actual DOCX field caches using local Microsoft Word (requires pywin32)",
@@ -220,7 +225,8 @@ def main():
     args = parser.parse_args()
     server = ThreadingHTTPServer(("127.0.0.1", args.port), Handler)
     server.store = Store(args.data_dir / "studio.sqlite3")
-    server.refresh_fields = args.refresh_fields
+    server.field_engine = "word" if args.refresh_fields else args.field_engine
+    server.refresh_fields = server.field_engine == "word"
     print(f"DocxSpec Studio: http://127.0.0.1:{args.port}", flush=True)
     try:
         server.serve_forever()

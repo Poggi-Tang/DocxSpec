@@ -41,7 +41,10 @@ DOCX 使用内置 DS 基础样式，包含 1—6 级标题编号、正文、表�
 
 生成的 DOCX 内置完整 DS 样式库，即使未使用某个标题级别或样式，也会保留供后续人工编辑。普通 WordAPI 导出也会补齐缺失的 DS 样式及编号依赖；已有的同名样式和调用方自定义样式保留。这里携带的是字体名称与样式定义，不包含字体安装文件。
 
-Windows 本机需要在导出时实际更新目录、题注和页眉页脚域，可安装 `python -m pip install -e ".[word]"`，然后使用 `python studio/server.py --data-dir .local-acceptance-data --refresh-fields` 启动。该选项调用 Microsoft Word 更新各 StoryRange、目录和图表目录并保存；Word 不可用或刷新失败时导出会报错，不会退回仅设置标记后声称成功。默认启动仍只设置打开更新标记，实际刷新需要 Office 执行。域专项的 `make_field_probe.py` 刻意保留 999 和 STALE TOC 缓存用于手工验证，不预先刷新。
+使用 `python studio/server.py --field-engine word` 指定 Word，`--refresh-fields` 仍可作为别名。
+其他引擎可选 `wps` 和 `libreoffice`。COM 引擎需要 Windows 上安装桌面应用与
+`docxspec[word]`。LibreOffice 需要可导入 UNO 的 Python。指定引擎后，导出会检查保存的域，
+检查失败时显示具体原因。默认 `mark` 只提交打开更新请求。
 
 ## 当前边界
 
@@ -49,7 +52,9 @@ Windows 本机需要在导出时实际更新目录、题注和页眉页脚域，
 
 尚不支持任意 DOCX 导入还原、拖动调整表格结构、章节排序删除、多人联网协作、文档回读或 PDF 在线预览。网页默认章节从内置 DOCX 实时读取：封面、修改记录、目录、图目录、表目录，以及母版正文的两组 1—6 级标题；用例区位于第一组六级标题下。前置页预览展示母版内容，正文按真实层级导出。旧模板仍按其原结构打开，旧版浏览器草稿另存于原 localStorage 键，默认新母版草稿使用独立键；样式工具作用于测试项。
 
-默认导出仅标记 `updateFields`；启用 `--refresh-fields` 时才调用本机 Microsoft Word 实际刷新，失败会中止导出。以往版本的 WPS 实测不会仅凭此标记自动更新全部域；正文需手动 Ctrl+A、F9，页眉页脚等区域另行检查，最终 PDF 正确不等于所有 DOCX 域缓存已刷新。浏览器画布不是 Word 排版引擎。一级章节分页，短测试表格尽量保持整块，超过单页的表格仍可能跨页。[历史验收记录](ACCEPTANCE.md) 包含旧版本 WPS 样例结果；本轮 DS 母版改动未重新完成真实 Word/WPS 打开、另存和 PDF 验收。
+WPS 手工执行正文的 Ctrl+A、F9 后，另存的 DOCX 仍可能保留页脚旧缓存，可用
+`verify_docx_fields()` 检查。[历史验收记录](ACCEPTANCE.md) 包含旧样例。
+浏览器画布展示编辑结构。一级章节分页，短测试表格尽量保持整块，超过单页的表格仍可跨页。
 
 服务没有认证，设计为仅本机运行。业务数据保存在本机，不需要外部服务。
 

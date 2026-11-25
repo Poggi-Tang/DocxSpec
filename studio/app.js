@@ -9,7 +9,7 @@ const escape = (s) =>
   );
 let state;
 let masterTemplate;
-let wordRefreshEnabled = false;
+let fieldEngine = "mark";
 
 let history = [],
   future = [];
@@ -535,7 +535,7 @@ $("generate").onclick = async () => {
   try {
     const response = await api("/api/render", documentData());
     download(await response.blob(), "docxspec-report.docx");
-    notify(wordRefreshEnabled ? "DOCX 已生成，Word 域刷新已完成" : "DOCX 已生成；域已标记为打开时更新，未执行 Word/WPS 刷新");
+    notify(fieldEngine === "mark" ? "DOCX 已生成，已请求在 Office 打开时更新域" : "DOCX 已生成，已检查保存后的域结果");
   } catch (e) {
     notify("生成失败：" + e.message);
   } finally {
@@ -548,7 +548,7 @@ async function boot() {
     masterTemplate = await (await api("/api/master")).json();
     state = masterTemplate.document;
     const health = await (await api("/api/health")).json();
-    wordRefreshEnabled = health.refresh_fields;
+    fieldEngine = health.field_engine ?? (health.refresh_fields ? "word" : "mark");
     render();
     const draft = JSON.parse(localStorage.getItem(draftKey) || "null");
     if (draft) {

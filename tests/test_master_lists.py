@@ -174,6 +174,22 @@ def simple_field(paragraph, instruction, cache=""):
         field.append(paragraph.add_run(cache)._r)
 
 
+def test_legacy_table_list_keep_and_retarget_table_caption_alias(tmp_path, blank_master):
+    api = WordAPI(str(blank_master))
+    body = api.new_container()
+    body.add_heading("正文验收", level=1)
+    body.add_field_paragraph([{"type": "field", "code": r'SEQ "表格"'}])
+    body.add_table([[{"text": "结果"}, {"text": "通过"}]])
+    path = tmp_path / "adjusted.docx"
+    api.render({"content": body.subdoc}, path)
+
+    fields = field_instr_text(path)
+    assert r'TOC \h \z \c "表格"' in fields
+    assert r'SEQ "表格"' in fields
+    report = check_word_standard(path)
+    assert report["figure_table_lists_ok"] and not report["has_wrong_table_toc"]
+
+
 def test_file_finalization_removes_only_the_optional_page_and_its_break(tmp_path, picture):
     output = tmp_path / "final.docx"
     report = Document()

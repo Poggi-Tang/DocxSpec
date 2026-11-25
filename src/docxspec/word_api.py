@@ -30,8 +30,10 @@ from docxtpl import DocxTemplate
 from PIL import Image
 
 from ._master_lists import prune_caption_list_pages
+from ._staged_output import staged_output
 from ._xml_order import child_in_order
 from .template_styles import ensure_ds_styles
+from .word_fields import refresh_docx_fields
 from .word_styles import (
     BODY_STYLE,
     CAPTION_STYLE,
@@ -1395,18 +1397,17 @@ class WordAPI:
             style or CAPTION_STYLE,
         )
 
-    def render(self, context: dict[str, Any], output_path: str) -> str:
-        output_path = str(output_path)
-        output_dir = os.path.dirname(output_path)
-        if output_dir:
-            os.makedirs(output_dir, exist_ok=True)
-
+    def render(
+        self, context: dict[str, Any], output_path: str, *, field_engine: str = "mark"
+    ) -> str:
         ensure_ds_styles(self.doc.get_docx())
         self.doc.render(context)
         prune_caption_list_pages(self.doc.docx.element.body)
-        self.doc.save(output_path)
+        with staged_output(Path(output_path)) as staged:
+            self.doc.save(str(staged))
+            refresh_docx_fields(staged, engine=field_engine, strict=True)
 
-        return output_path
+        return str(output_path)
 
     def _write_single_header(
         self,
