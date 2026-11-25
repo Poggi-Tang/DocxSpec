@@ -14,6 +14,8 @@ from docx.opc.oxml import CT_Relationships, parse_xml, serialize_part_xml
 from docx.opc.packuri import CONTENT_TYPES_URI, PACKAGE_URI, PackURI
 from lxml import etree
 
+from ._field_xml import field_instruction, iter_fields
+from ._master_lists import prune_caption_list_pages
 from ._word_com import close_word, refresh_document_fields
 from ._xml_order import child_in_order
 
@@ -95,14 +97,18 @@ def _mark_settings_xml(data: bytes) -> bytes:
     return etree.tostring(root, xml_declaration=True, encoding="UTF-8", standalone=True)
 
 
-def _settings_updates(source: ZipFile) -> dict[str, bytes]:
+def _document_part_uri(source: ZipFile) -> PackURI:
     package_rels = parse_xml(source.read(PACKAGE_URI.rels_uri.membername))
     main_rel = next(
         (rel for rel in package_rels.Relationship_lst if rel.reltype == RT.OFFICE_DOCUMENT), None
     )
     if main_rel is None or main_rel.target_mode != "Internal":
         raise ValueError("DOCX has no internal document part")
-    document = PackURI.from_rel_ref(PACKAGE_URI, main_rel.target_ref)
+    return PackURI.from_rel_ref(PACKAGE_URI, main_rel.target_ref)
+
+
+def _settings_updates(source: ZipFile) -> dict[str, bytes]:
+    document = _document_part_uri(source)
     rels_name = document.rels_uri.membername
     names = set(source.namelist())
     rels = parse_xml(source.read(rels_name)) if rels_name in names else CT_Relationships.new()
@@ -156,31 +162,25 @@ def mark_update_fields_on_open(docx_path: str | Path) -> Path:
     return path
 
 
+def prune_empty_caption_lists(docx_path: str | Path) -> Path:
+    """Remove empty DS front-matter lists from an already assembled report."""
+    path = _as_path(docx_path)
+    with ZipFile(path) as source:
+        name = _document_part_uri(source).membername
+        document = etree.fromstring(source.read(name))
+    body = document.find(f"{W_QN}body")
+    if body is not None and prune_caption_list_pages(body):
+        _rewrite_docx(path, {name: serialize_part_xml(document)})
+    return path
+
+
 def _normalize_table_list_xml(data: bytes) -> tuple[bytes, int]:
     import re
 
     root = etree.fromstring(data)
     count = 0
-    stack = []
-    fields = []
-    for node in root.iter():
-        if node.tag == f"{W_QN}fldSimple":
-            fields.append((node, None))
-        elif node.tag == f"{W_QN}fldChar":
-            kind = node.get(f"{W_QN}fldCharType")
-            if kind == "begin":
-                stack.append([node, [], False])
-            elif kind == "separate" and stack:
-                stack[-1][2] = True
-            elif kind == "end" and stack:
-                owner, nodes, _ = stack.pop()
-                fields.append((owner, nodes))
-        elif node.tag == f"{W_QN}instrText" and stack and not stack[-1][2]:
-            stack[-1][1].append(node)
-    for owner, nodes in fields:
-        text = (
-            owner.get(f"{W_QN}instr", "") if nodes is None else "".join(n.text or "" for n in nodes)
-        )
+    for owner, _, nodes in iter_fields(root):
+        text = field_instruction(owner, nodes)
         if not re.match(r"^\s*TOC\b", text, re.I):
             continue
         match = re.search(r'\\c\s+"(表格|表)"', text, re.I)

@@ -189,7 +189,7 @@ manual editing. Missing style and numbering dependencies are copied with remappe
 IDs; existing styles in a custom template are preserved. These are font references
 and formatting definitions, not embedded font files.
 
-The demo template in `Demo/template.docx` is provided as a runnable example, but demo assets are not packaged into the published wheel. The DS master template used by `build_standard_docx()` is bundled separately as package data.
+The demo template in `Demo/template.docx` is a runnable example. The published wheel includes the DS base document and front-matter templates separately from the demo assets.
 
 ## DS Standard Documents
 
@@ -200,17 +200,23 @@ existing body-only `.docx` file and need a standardized output document.
 from docxspec import build_standard_docx, check_word_standard, classify_docx_body
 
 report = classify_docx_body("body.docx")
-build_result = build_standard_docx(
-    "body.docx",
-    "standard.docx",
-    "Demo/template.docx",
-)
+build_result = build_standard_docx("body.docx", "standard.docx")
 check_result = check_word_standard("standard.docx")
 ```
 
-These APIs reuse the DS styles and field-code rules from the master template. They are intended
-for document standardization and validation, while `WordAPI` remains the primary API for
-template-driven report generation.
+`build_standard_docx()` uses the bundled `body.docx` as the source of the default DS styles.
+It adds `cover.docx`, `revision.docx`, and `contents.docx` to every report. It adds `figures.docx`
+and `tables.docx` only when the final body contains matching Word caption fields.
+
+To customize the front matter, copy the `.docx` files you want to edit from `docxspec.DEFAULT_DS_SECTIONS`
+into your own folder, then pass `front_matter_dir="my_layout"`. Each file has one Word section
+and can span several pages. Keep the native caption-list field when editing `figures.docx` or
+`tables.docx`. The remaining sections come from the package. The DS base document supplies the
+definitions for same-named DS styles.
+
+To use an existing whole-document template, pass `template_docx=`. `WordAPI.render()` also removes
+empty standalone figure and table lists from existing templates. Other renderers can call
+`prune_empty_caption_lists(path)` on their finished DOCX.
 
 ## Refreshing Word Fields
 

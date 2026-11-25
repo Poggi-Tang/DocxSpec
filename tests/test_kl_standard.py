@@ -8,6 +8,7 @@ from docx import Document
 from docx.enum.style import WD_STYLE_TYPE
 
 from docxspec import (
+    DEFAULT_DS_SECTIONS,
     DEFAULT_MASTER_TEMPLATE,
     build_standard_docx,
     check_word_standard,
@@ -314,7 +315,7 @@ def test_build_standard_docx_uses_packaged_template_by_default(tmp_path: Path) -
     report = build_standard_docx(body, output)
 
     assert output.exists()
-    assert report["template"] == str(DEFAULT_MASTER_TEMPLATE)
+    assert report["template"] == str(DEFAULT_DS_SECTIONS / "body.docx")
     assert check_word_standard(output)["required_styles_ok"] is True
 
 

@@ -1,26 +1,26 @@
 """Read the Studio's default chapter structure from the packaged Word master."""
 
-from docx import Document
-
-from docxspec import DEFAULT_MASTER_TEMPLATE
+from docxspec._section_templates import load_ds_section
 
 HEADING_STYLES = [f"DS{label}级标题" for label in "一二三四五六"]
 
 
 def master_document():
-    master = Document(DEFAULT_MASTER_TEMPLATE)
+    body = load_ds_section("body")
+    cover = load_ds_section("cover")
+    revision = load_ds_section("revision")
     sections = ["封面", "修改记录", "目录", "图目录", "表目录"]
     metadata = [
         {"kind": kind, "level": 0}
         for kind in ("cover", "revision", "toc", "figures", "tables")
     ]
     texts = {"0": "\n".join(
-        p.text for p in master.paragraphs
+        p.text for p in cover.paragraphs
         if p.text.strip() in ("XXXX系统", "技术方案")
     )}
     in_body = False
     first_case_section = None
-    for paragraph in master.paragraphs:
+    for paragraph in body.paragraphs:
         if paragraph.style.name == HEADING_STYLES[0]:
             in_body = True
         if not in_body:
@@ -52,8 +52,8 @@ def master_document():
     )
     return dict(
         document=document,
-        revision_rows=[[cell.text for cell in row.cells] for row in master.tables[1].rows],
-        signature_rows=[[cell.text for cell in row.cells] for row in master.tables[0].rows],
-        file_number=next(p.text for p in master.paragraphs if "文件编号" in p.text),
-        template=DEFAULT_MASTER_TEMPLATE.name,
+        revision_rows=[[cell.text for cell in row.cells] for row in revision.tables[0].rows],
+        signature_rows=[[cell.text for cell in row.cells] for row in cover.tables[0].rows],
+        file_number=next(p.text for p in cover.paragraphs if "文件编号" in p.text),
+        template="body.docx",
     )

@@ -6,6 +6,29 @@ The format is based on *Keep a Changelog*, and this project adheres to *Semantic
 
 ---
 
+## [0.2.0] - 2026-11-25
+
+### Added
+
+* Bundle separate DOCX templates for the cover, revision history, table of
+  contents, figure list, and table list, with a shared DS base document.
+* Add `front_matter_dir` to `build_standard_docx()` for replacing individual
+  front-matter templates and export `DEFAULT_DS_SECTIONS` to locate them.
+
+### Changed
+
+* Standard DOCX generation and Studio V1 assemble front matter after the report
+  body is rendered and use the bundled definitions for same-named DS styles.
+* Include figure and table lists only when the final body contains matching Word
+  captions. Preserve the cover, revision history, and main table of contents.
+
+### Fixed
+
+* Remove empty standalone caption lists and their separators when rendering
+  existing DS master templates.
+* Keep the default cover on one page and its document number out of the main
+  table of contents.
+
 ## [0.1.2] - 2026-11-25
 
 ### Fixed

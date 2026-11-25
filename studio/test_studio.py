@@ -9,7 +9,7 @@ from pathlib import Path
 from docx import Document
 from docx.oxml.ns import qn
 from lxml import etree
-from docxspec import DEFAULT_MASTER_TEMPLATE
+from docxspec import DEFAULT_DS_SECTIONS
 from model import validate
 from PIL import Image
 from renderer import render_docx
@@ -80,7 +80,10 @@ class StudioTests(unittest.TestCase):
         with zipfile.ZipFile(io.BytesIO(raw)) as z:
             self.assertIn(b"updateFields", z.read("word/settings.xml"))
             self.assertNotIn(b"KL", z.read("word/styles.xml"))
-            self.assertNotIn(b"{{p report}}", z.read("word/document.xml"))
+            xml = z.read("word/document.xml").decode("utf-8")
+            self.assertNotIn("{{p report}}", xml)
+            self.assertIn('TOC \\h \\z \\c "图"', xml)
+            self.assertIn('TOC \\h \\z \\c "表"', xml)
 
     def test_word_refresh_is_explicit_and_failures_stop_export(self):
         from unittest.mock import patch
@@ -101,8 +104,8 @@ class StudioTests(unittest.TestCase):
         data["format"] = {}
         raw = render_docx(data)
         doc = Document(io.BytesIO(raw))
-        source = Document(DEFAULT_MASTER_TEMPLATE)
-        self.assertEqual(len(doc.sections), len(source.sections))
+        source = Document(DEFAULT_DS_SECTIONS / "body.docx")
+        self.assertEqual(len(doc.sections), 5)
         self.assertEqual(doc.sections[-1].left_margin, source.sections[-1].left_margin)
         for style in source.styles:
             if style.name.startswith(("DS", "toc ")):
@@ -127,16 +130,22 @@ class StudioTests(unittest.TestCase):
         self.assertIsNone(paragraph.runs[0].font.size)
         self.assertEqual(doc.tables[2].cell(0, 0).paragraphs[0].style.name, "DS表格表头")
         self.assertNotIn("3　明细", "\n".join(p.text for p in doc.paragraphs))
-        with zipfile.ZipFile(DEFAULT_MASTER_TEMPLATE) as master, zipfile.ZipFile(io.BytesIO(raw)) as result:
-            for name in master.namelist():
-                if name.startswith(("word/header", "word/footer")) and name.endswith(".xml"):
+        for name, section in zip(("cover", "revision", "contents", "tables", "body"), doc.sections):
+            original = Document(DEFAULT_DS_SECTIONS / f"{name}.docx").sections[0]
+            for story in ("header", "first_page_header", "footer", "first_page_footer"):
+                expected = getattr(original, story).part.element
+                actual = getattr(section, story).part.element
+                for xpath in (".//w:t/text()", ".//w:instrText/text()"):
                     self.assertEqual(
-                        etree.tostring(etree.fromstring(master.read(name)), method="c14n"),
-                        etree.tostring(etree.fromstring(result.read(name)), method="c14n"),
+                        expected.xpath(xpath),
+                        actual.xpath(xpath),
                         name,
                     )
+        with zipfile.ZipFile(io.BytesIO(raw)) as result:
             xml = result.read("word/document.xml").decode("utf-8")
             self.assertIn('TOC \\o', xml)
+            self.assertNotIn('TOC \\h \\z \\c "图"', xml)
+            self.assertIn('TOC \\h \\z \\c "表"', xml)
             self.assertIn("STYLEREF DS一级标题", xml)
             self.assertIn("SEQ 表", xml)
             self.assertNotIn("DS六级标题</w:t>", xml)
@@ -189,7 +198,7 @@ class StudioTests(unittest.TestCase):
 
         defaults = master_document()
         data = validate(defaults["document"])
-        master = Document(DEFAULT_MASTER_TEMPLATE)
+        master = Document(DEFAULT_DS_SECTIONS / "body.docx")
         headings = [
             (p.text.strip(), p.style.name) for p in master.paragraphs
             if p.style.name in HEADING_STYLES
@@ -205,7 +214,7 @@ class StudioTests(unittest.TestCase):
         exported = exported[exported.index(("母版第一章", "DS一级标题")):]
         expected = [("母版第一章", headings[0][1]), *headings[1:]]
         self.assertEqual(exported, expected)
-        self.assertEqual(len(output.sections), len(master.sections))
+        self.assertEqual(len(output.sections), 5)
         self.assertEqual(len(output.tables), 4)
         self.assertNotIn("修改记录", [p.text for p in output.paragraphs if p.style.name == "DS一级标题"])
         with tempfile.TemporaryDirectory() as folder:

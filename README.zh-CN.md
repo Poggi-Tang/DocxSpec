@@ -180,6 +180,20 @@ python studio/server.py --data-dir .local-acceptance-data
 表目录及正文 1—6 级标题结构；当前母版含两组示例标题，用例区位于第一组六级标题下。
 导出沿用母版的字体、编号、表格、图片、题注和各节页眉页脚。端口被占用时使用 `--port`。
 
+### DS 分块母版
+
+`build_standard_docx("正文.docx", "报告.docx")` 默认使用内置 `body.docx` 的 DS 基础样式。
+每次导出都装配封面（`cover.docx`）、修订记录（`revision.docx`）和正文目录（`contents.docx`）。
+正文写完后，根据实际题注域决定是否装配图录（`figures.docx`）和表录（`tables.docx`）。
+
+要单独修改某一块，可从 `docxspec.DEFAULT_DS_SECTIONS` 复制对应文件到自己的目录，
+然后传入 `front_matter_dir="my_layout"`。每个文件包含一个 Word 分节，可跨多页。编辑图录和
+表录时请保留原生目录域。其余块仍取自内置文件，各块引用的同名 DS 样式统一使用基础文档的定义。
+
+已有整份母版仍可通过 `template_docx=` 使用。`WordAPI.render()` 会在最终生成时移除整份母版
+中的独立空图录和表录。自行保存 DOCX 的渲染器可在写完内容后调用
+`docxspec.prune_empty_caption_lists(path)`。
+
 Windows 上可安装 `python -m pip install -e ".[word]"`，启动时增加 `--refresh-fields`，
 在下载前调用本机 Microsoft Word 更新域并保存；失败时导出报错。默认启动只写入打开更新
 标记，不保证 Office 自动刷新所有区域。当前版本的真实 Word/WPS 排版与 PDF 仍需人工验收。

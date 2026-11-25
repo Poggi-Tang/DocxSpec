@@ -29,6 +29,7 @@ from docx.shared import Cm, Pt, RGBColor
 from docxtpl import DocxTemplate
 from PIL import Image
 
+from ._master_lists import prune_caption_list_pages
 from ._xml_order import child_in_order
 from .template_styles import ensure_ds_styles
 from .word_styles import (
@@ -1402,6 +1403,7 @@ class WordAPI:
 
         ensure_ds_styles(self.doc.get_docx())
         self.doc.render(context)
+        prune_caption_list_pages(self.doc.docx.element.body)
         self.doc.save(output_path)
 
         return output_path

@@ -13,7 +13,6 @@ from model import DEFAULT_TEXTS, image_bytes, validate
 from PIL import Image
 
 from docxspec import (
-    DEFAULT_MASTER_TEMPLATE,
     CellStyle,
     TableStyle,
     TextStyle,
@@ -21,62 +20,21 @@ from docxspec import (
     mark_update_fields_on_open,
     refresh_docx_fields,
 )
-from docxspec.kl_standard import remove_template_sample_body
-
-
-def _clear_directory_caches(document):
-    """Keep the master's TOC/figure/table fields but remove cached sample entries."""
-    fields = []
-    remove = []
-    for node in document.element.body.iter():
-        cached = any(field["toc"] and field["result"] for field in fields)
-        if node.tag == qn("w:fldChar"):
-            kind = node.get(qn("w:fldCharType"))
-            if kind == "begin":
-                if cached:
-                    remove.append(node)
-                fields.append(dict(code="", toc=False, result=False))
-            elif kind == "separate" and fields:
-                if cached:
-                    remove.append(node)
-                field = fields[-1]
-                field["toc"] = field["code"].strip().startswith("TOC ")
-                field["result"] = True
-            elif kind == "end" and fields:
-                fields.pop()
-                if any(parent["toc"] and parent["result"] for parent in fields):
-                    remove.append(node)
-        elif node.tag == qn("w:instrText"):
-            if fields and not fields[-1]["result"]:
-                fields[-1]["code"] += node.text or ""
-            if cached:
-                remove.append(node)
-        elif cached and node.tag in (qn("w:t"), qn("w:tab")):
-            remove.append(node)
-    for node in remove:
-        node.getparent().remove(node)
+from docxspec._section_templates import assemble_ds_front_matter, load_ds_section
+from docxspec.kl_standard import replace_cover_title
 
 
 def render_docx(model, *, refresh_fields=False):
     model = validate(model)
     with tempfile.TemporaryDirectory(prefix="docxspec-studio-") as tmp:
         root = Path(tmp)
-        template = Document(DEFAULT_MASTER_TEMPLATE)
-        # Keep the source's cover, revision table, TOC/list controls and section furniture.
+        template = load_ds_section("body")
         sample_table_properties = deepcopy(template.tables[-1]._tbl.tblPr)
         section = template.sections[-1]
         content_width = (section.page_width - section.left_margin - section.right_margin) / 360000
-        remove_template_sample_body(template)
-        _clear_directory_caches(template)
+        template.element.body.clear_content()
         metadata = model.get("section_meta")
         cover_text = model["texts"].get("0", DEFAULT_TEXTS[0])
-        for paragraph in template.paragraphs:
-            if paragraph.text.strip() == "XXXX系统":
-                paragraph.text = cover_text
-                paragraph.style = "DS主标题"
-            elif paragraph.text.strip() == "技术方案":
-                paragraph.text = ""
-        # Insert at the former sample body, before the retained final section properties.
         template.add_paragraph("{{p report}}", style="DS正文")
         template.core_properties.author = "DocxSpec"
         template.core_properties.title = "测试报告"
@@ -205,6 +163,9 @@ def render_docx(model, *, refresh_fields=False):
                             )
         output = root / "report.docx"
         api.render({"report": body.subdoc}, str(output))
+        document = Document(output)
+        assemble_ds_front_matter(document, prepare_cover=lambda cover: replace_cover_title(cover, cover_text))
+        document.save(output)
         if refresh_fields:
             refresh_docx_fields(output, use_word=True, raise_on_word_error=True)
         else:

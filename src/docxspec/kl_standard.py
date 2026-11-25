@@ -25,7 +25,10 @@ from docx.table import Table
 from docx.text.paragraph import Paragraph
 from docxcompose.composer import Composer
 
+from ._master_lists import has_body_page_start, prune_caption_list_pages
+from ._section_templates import DEFAULT_DS_SECTIONS, assemble_ds_front_matter, load_ds_section
 from .template_styles import ensure_ds_styles
+from .word_fields import mark_update_fields_on_open
 
 PACKAGE_ASSETS_DIR = Path(__file__).resolve().parent / "assets"
 DEFAULT_MASTER_TEMPLATE = PACKAGE_ASSETS_DIR / "docxspec_master_template.docx"
@@ -508,7 +511,7 @@ def write_source_body_only_docx(input_docx: Path, output_docx: Path, body_start:
 
 def replace_cover_title(doc: Document, title: str | None) -> None:
     """把母版封面标题替换为源文档标题。"""
-    if not title:
+    if title is None:
         return
     for paragraph in doc.paragraphs:
         text = paragraph.text.strip()
@@ -519,15 +522,23 @@ def replace_cover_title(doc: Document, title: str | None) -> None:
             paragraph.text = ""
 
 
-def replace_cover_file_number(doc: Document, file_number: str | None) -> None:
+def replace_cover_file_number(
+    doc: Document, file_number: str | None, *, keep_layout: bool = False
+) -> None:
     """把母版封面文件编号占位替换为源文档文件编号。"""
     if not file_number:
         return
     for paragraph in doc.paragraphs:
         text = paragraph.text.strip()
         if text.startswith("文件编号：") or text.startswith("文件编号:"):
-            paragraph.text = file_number
-            normalize_paragraph_to_style(paragraph, STYLE_HEADING_5)
+            if keep_layout and paragraph.runs:
+                first, *remaining = paragraph.runs
+                first.text = file_number
+                for run in remaining:
+                    run.text = ""
+            else:
+                paragraph.text = file_number
+                normalize_paragraph_to_style(paragraph, STYLE_HEADING_5)
             return
 
 
@@ -1157,11 +1168,18 @@ def build_standard_docx(
     template_docx: Path | str | None = None,
     *,
     skip_source_front_matter: bool = False,
+    front_matter_dir: Path | str | None = None,
 ) -> dict[str, Any]:
     """基于 DS 母版把正文文档转换为标准文档。"""
     input_path = Path(input_docx)
     output_path = Path(output_docx)
-    template_path = Path(template_docx) if template_docx is not None else DEFAULT_MASTER_TEMPLATE
+    modular = template_docx is None
+    if front_matter_dir is not None:
+        if not modular:
+            raise ValueError("template_docx 与 front_matter_dir 请选择一种")
+        if not Path(front_matter_dir).is_dir():
+            raise FileNotFoundError(f"DS 前置块目录不存在: {front_matter_dir}")
+    template_path = DEFAULT_DS_SECTIONS / "body.docx" if modular else Path(template_docx)
     if not template_path.exists():
         raise FileNotFoundError(f"DS母版模板不存在: {template_path}")
     source_report = classify_docx_body(input_path)
@@ -1188,40 +1206,66 @@ def build_standard_docx(
 
     with tempfile.TemporaryDirectory() as tmp:
         tmp_dir = Path(tmp)
-        front_docx = tmp_dir / "front.docx"
-        shutil.copy2(template_path, front_docx)
-
-        front_doc = Document(str(front_docx))
-        # Retain support for explicit templates created before the DS rename.
-        for style in front_doc.styles:
-            if style.name.startswith("KL"):
-                style.name = "DS" + style.name[2:]
-        for node in front_doc.element.xpath(".//w:instrText"):
-            if node.text:
-                node.text = node.text.replace("STYLEREF KL", "STYLEREF DS")
-        replace_cover_title(front_doc, source_title)
-        replace_cover_file_number(front_doc, source_file_number)
-        remove_template_front_matter_samples(front_doc)
-        set_default_headers(front_doc, source_title)
         front_matter = {"template_front_matter_preserved": True}
-        front_count = remove_template_sample_body(front_doc)
-        front_doc.add_paragraph().add_run().add_break(WD_BREAK.PAGE)
-        front_doc.save(str(front_docx))
+        front_count = 0
+        added_body_break = False
+        if modular:
+            master = load_ds_section("body")
+            master.element.body.clear_content()
+        else:
+            master = Document(template_path)
+            # Retain support for explicit templates created before the DS rename.
+            for style in master.styles:
+                if style.name.startswith("KL"):
+                    style.name = "DS" + style.name[2:]
+            for node in master.element.xpath(".//w:instrText"):
+                if node.text:
+                    node.text = node.text.replace("STYLEREF KL", "STYLEREF DS")
+            replace_cover_title(master, source_title)
+            replace_cover_file_number(master, source_file_number)
+            remove_template_front_matter_samples(master)
+            set_default_headers(master, source_title)
+            front_count = remove_template_sample_body(master)
+            added_body_break = not has_body_page_start(master)
+            if added_body_break:
+                master.add_page_break()
 
         source_body_docx = tmp_dir / "source_body.docx"
         write_source_body_only_docx(input_path, source_body_docx, source_body_start)
 
-        master = Document(str(front_docx))
         composer = Composer(master)
         composer.append(Document(str(source_body_docx)))
         composed_docx = tmp_dir / "composed.docx"
         composer.save(str(composed_docx))
 
         doc = Document(str(composed_docx))
-        set_default_headers(doc, source_title)
-        report = standardize_appended_body(doc, front_count + 1, source_title, source_blocks)
+        if not modular:
+            set_default_headers(doc, source_title)
+        report = standardize_appended_body(
+            doc, front_count + added_body_break, source_title, source_blocks
+        )
+        if modular:
+            def prepare_cover(cover):
+                replace_cover_title(cover, source_title)
+                replace_cover_file_number(cover, source_file_number, keep_layout=True)
+
+            body_start = assemble_ds_front_matter(
+                doc,
+                directory=front_matter_dir,
+                prepare_cover=prepare_cover,
+                header_title=source_title,
+            )
+            front_count = sum(
+                element.tag in {qn("w:p"), qn("w:tbl")}
+                for element in list(doc.element.body)[:body_start]
+            )
+        else:
+            removed = prune_caption_list_pages(doc.element.body)
+            front_count -= sum(element.tag in {qn("w:p"), qn("w:tbl")} for element in removed)
         ensure_ds_styles(doc)
         doc.save(str(output_path))
+        if modular:
+            mark_update_fields_on_open(output_path)
 
     report.update(
         {
